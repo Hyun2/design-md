@@ -17,7 +17,7 @@
 파일이 없는 slug(= getdesign에 새로 추가된 제품)이면 먼저 캐시를 채운다.
 
 ```bash
-./sync-designs.sh --with-preview
+./sync-designs.sh
 ```
 
 그래도 받지 못하면 `DESIGN.md`만으로 작업하고, 보고에 "preview를 확인하지 못했다"를
