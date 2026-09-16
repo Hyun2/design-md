@@ -11,22 +11,23 @@
 
 ## preview 접근
 
-preview URL의 유일한 출처는 `preview-check.sh`의 stdout이다. 이 스크립트는 제품 페이지에서
-preview 경로를 매번 다시 찾아내고 실제로 열리는지까지 확인하는 **계약 검증**이다.
+`./<slug>/preview.html`을 `file://`로 열어 스크린샷을 찍는다. 76개 제품 전부 저장소에 들어
+있고 각 파일은 JS 없는 독립 문서라, 네트워크도 브라우저 조작도 필요 없다.
+
+파일이 없는 slug(= getdesign에 새로 추가된 제품)이면 먼저 캐시를 채운다.
 
 ```bash
-url="$(./preview-check.sh <slug> 2>/dev/null)"; url="${url#PREVIEW_URL=}"
+./sync-designs.sh --with-preview
 ```
 
-- **종료 코드 0** — 그 URL을 브라우저로 열어 스크린샷을 찍는다. 로컬 캐시
-  `./<slug>/preview.html`이 있으면 `file://`로 열어도 된다.
-- **종료 코드 0이 아님** — 계약이 깨졌다. `DESIGN.md`만으로 작업하고, 보고에 "preview를
-  확인하지 못했다"를 명시한다. 원인 파악은 `README.md`의 preview-check.sh 절을 따른다.
+그래도 받지 못하면 `DESIGN.md`만으로 작업하고, 보고에 "preview를 확인하지 못했다"를
+명시한다. 원인 파악은 `README.md`의 preview-check.sh 절을 따른다.
 
 스크린샷을 실제로 본 경우에만 preview를 확인했다고 쓴다.
 
-getdesign 사이트 코드는 수시로 바뀐다. CSS 클래스·인라인 스타일·요소 인덱스로 preview를
-찾으면 조용히 깨진 뒤 빈 화면을 확인했다고 보고하게 되므로, 위 스크립트를 유일한 경로로 쓴다.
+getdesign 사이트에서 preview를 직접 받아야 할 때, URL의 유일한 출처는
+`./preview-check.sh <slug>`의 stdout이다. CSS 클래스·인라인 스타일·요소 인덱스로 찾으면
+사이트 코드가 바뀔 때 조용히 깨진 뒤 빈 화면을 확인했다고 보고하게 된다.
 
 ## 그 밖의 운영
 

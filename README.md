@@ -1,7 +1,8 @@
 # 스크립트 사용법
 
 getdesign의 제품별 `DESIGN.md`를 `./<slug>/DESIGN.md`로 내려받는 `sync-designs.sh`,
-각 제품의 preview에 접근 가능한지 확인하는 `preview-check.sh` 두 개가 있습니다.
+preview를 어디서 받아올지 알아내고 그 경로가 아직 유효한지 확인하는 `preview-check.sh`
+두 개가 있습니다.
 옵션 목록은 각 스크립트의 `--help`에 있습니다. 여기에는 `--help`가 말해주지 않는 것만 적습니다.
 
 에이전트가 UI 작업에서 지켜야 할 규칙은 `AGENTS.md`에 있습니다.
@@ -23,6 +24,10 @@ getdesign의 제품별 `DESIGN.md`를 `./<slug>/DESIGN.md`로 내려받는 `sync
 - CLI 버전 고정: `GETDESIGN_CLI=getdesign@1.2.3 ./sync-designs.sh`
 
 ## preview-check.sh
+
+UI 작업에서 preview를 볼 때는 이 스크립트가 필요 없습니다. `./<slug>/preview.html`이
+이미 저장소에 있으니 그 파일을 엽니다. 이 스크립트는 **캐시를 채울 때**(새 slug 추가,
+`--refresh`) 쓰는 다운로드 경로이자, getdesign 쪽 구조 변경을 잡아내는 탐지기입니다.
 
 성공하면 stdout은 `PREVIEW_URL=<url>` 한 줄뿐이고 진단 로그는 전부 stderr로 나가므로,
 `url="$(./preview-check.sh apple 2>/dev/null)"`로 바로 받아 쓸 수 있습니다.
