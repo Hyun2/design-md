@@ -71,5 +71,10 @@ getdesign 사이트에서 preview를 직접 받아야 할 때, URL의 유일한 
 ### 이 라이브러리를 찾는 방법
 
 프로젝트에서 이 디렉터리를 참조할 때 경로를 문서에 박지 않는다. 해소 순서는
-`$DESIGN_MD_HOME` → `${XDG_CONFIG_HOME:-$HOME/.config}/design-md/home` → 흔한 위치 후보이며,
-검증은 이름이 아니라 `sync-designs.sh`와 `AGENTS.md`가 함께 있는지로 한다.
+`$DESIGN_MD_HOME` → `${XDG_CONFIG_HOME:-$HOME/.config}/design-md/home` → 흔한 위치 후보다.
+
+검증은 디렉터리 이름이나 특정 파일 이름이 아니라 **코퍼스 구조**로 한다 — `*/DESIGN.md`가
+3개 이상 있으면 이 라이브러리다. 그 구조가 라이브러리의 존재 이유라서 리팩터링을 견딘다.
+
+따라서 외부와의 유일한 계약은 **`<slug>/DESIGN.md` 배치**다. 그것만 유지하면 스크립트와
+문서는 자유롭게 정리해도 참조하는 쪽이 계속 라이브러리를 찾는다.
