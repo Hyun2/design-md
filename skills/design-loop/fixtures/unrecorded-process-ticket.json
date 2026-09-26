@@ -3,12 +3,21 @@
     "101": {
       "title": "fixture — process ticket closed by the tracker's own close",
       "body": "<!-- ledger-source: 1 :: fixture -->",
-      "comments": [],
+      "comments": [
+        "```ledger\nfinding: fixture\nclass: project\nwhere: closed through ledger.mjs close\n```"
+      ],
       "state": "closed",
       "stateReason": "completed",
       "closedAt": "2026-09-25T00:00:00Z"
     }
   },
-  "subIssues": { "25": [101], "16": [] },
-  "blockedBy": { "16": [] }
+  "subIssues": {
+    "16": [],
+    "25": [
+      101
+    ]
+  },
+  "blockedBy": {
+    "16": []
+  }
 }

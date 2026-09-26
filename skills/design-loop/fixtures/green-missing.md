@@ -8,4 +8,5 @@ class: protocol
 caught-by: cmd node design-loop/scripts/ledger.mjs check 0 --file design-loop/fixtures/green-missing.md
 red: design-md@1024976
 red-line: fixture line
+green: design-md@62e50d6
 ```
