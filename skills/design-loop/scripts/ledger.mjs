@@ -81,7 +81,13 @@
  * #49 also failed on unrelated things (a 1440×1400 fit, other dead controls),
  * and only the named line tied the failure to the defect; and a red written
  * without being run (#55's `e841abb`, already fixed) has no line to paste.
- * `asset` means executable by definition, so an asset row accepts `cmd` only.
+ * `asset` means executable by definition, so an asset row accepts `cmd` only,
+ * and its command must run a script inside the skills (`SKILLS_ROOT`, after
+ * following links): a check that lives in one project's repository protects
+ * that repository, and the next project meets the defect from scratch — the
+ * G1 finding behind process ticket #56, which the substrate detector repeated.
+ * A project caller that only builds URLs cannot be told apart from a check by
+ * reading it, so a row run through a caller names the skill command it runs.
  * `check` resolves a bare `red`/`green` with `git` in the working directory —
  * run it from the repo where the defect lived — and requires both to be
  * ancestors of HEAD: the remote carries `main` only, so a red on a side branch
@@ -144,7 +150,7 @@
  * so they refuse it.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -250,6 +256,26 @@ function reach(ref) {
   return branches.status === 0 && branches.stdout.trim() ? "unpushed" : "unreachable";
 }
 
+// The script an asset row's command runs, if it lies inside the skills. The
+// first token that names a file is the script: `node <script>`, `npx tsx
+// <script>`, `sh <script>`; env assignments and flags before it are skipped.
+// Relative paths resolve against the working directory and then SKILLS_ROOT,
+// so `design-loop/scripts/…` and `~/.agents/skills/…` both land in the checkout.
+function skillScript(command) {
+  for (const token of command.split(/\s+/)) {
+    if (!token || /^[A-Z_][A-Z0-9_]*=/.test(token) || token.startsWith("-")) continue;
+    if (!/[/.]/.test(token)) continue;
+    const path = token.replace(/^~\//, `${homedir()}/`);
+    for (const candidate of [resolve(path), resolve(SKILLS_ROOT, path)]) {
+      if (!existsSync(candidate)) continue;
+      const real = realpathSync(candidate);
+      if (real.startsWith(`${SKILLS_ROOT}/`)) return { script: real };
+      return { outside: real };
+    }
+  }
+  return {};
+}
+
 // What would catch this finding next round, or why the row cannot claim to be
 // carried. Returns { kind, problem } — kind is cmd | doc | ticket | null.
 function catcher(row) {
@@ -266,6 +292,15 @@ function catcher(row) {
   const [, kind, rest] = match;
   if (row.class === "asset" && kind !== "cmd") {
     return { kind, problem: "an asset row is executable by definition — caught-by: cmd only" };
+  }
+  if (row.class === "asset") {
+    const found = skillScript(rest);
+    if (!found.script) {
+      return {
+        kind,
+        problem: `an asset row's command must run a script inside ${SKILLS_ROOT} — ${found.outside ? `${found.outside} is a project file` : "no script path found"}; a check in one repository is not inherited by the next project (write the skill command a caller runs)`,
+      };
+    }
   }
   if (kind === "cmd") {
     if (!row.red) return { kind, problem: "caught-by: cmd needs red: <commit where it failed on this defect>" };
