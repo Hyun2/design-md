@@ -60,7 +60,10 @@ v4는 `@theme`이 그 값을 유틸리티 이름으로 노출한다.
 시트까지 반영된다). 임의 값 `bg-(--x)` · `bg-[var(--x)]`는 무엇이든 컴파일되므로 `--x`의 선언 여부를
 따로 본다. 라이브러리가 런타임에 요소에 써 넣는 변수(Base UI의 `--anchor-width` 등)는 어느 시트도
 선언하지 않으므로 사유와 함께 제외 목록에 둔다. VERIFIED(tailwindcss 4.2.0 · TuBrief
-`scripts/substrate-detect.ts` · 2026-09-25 · 끊긴 참조 16건 재현).
+저장소 detector · 2026-09-25 · 끊긴 참조 16건 재현).
+
+**코드.** 이 절의 답은 [`scripts/adapters/tailwind.mjs`](scripts/adapters/tailwind.mjs)에 있다.
+MUI · Chakra는 아직 코드가 없다 — 첫 적용이 이 절의 답을 확인하면서 같은 모양의 어댑터 파일을 추가한다.
 
 ## MUI (Material UI)
 

@@ -102,8 +102,8 @@ script에서만 무너지는 값(커버리지 결함)은 구조적으로 여기�
 | STEP | 쓰는 명령 | 대체 |
 |---|---|---|
 | 1 어휘 조사 | `extract` | 토큰 선언 파일과 primitive를 전수 grep해 속성×권위 표를 손으로 만든다 |
-| 5 비회귀 게이트 | `audit` | 대비·포커스·반응형을 브라우저 자동화 스크립트로 직접 측정한다 |
-| 7 detector | `hooks` | 저장소 스크립트를 pre-commit 또는 CI에 직접 등록한다 |
+| 5 비회귀 게이트 | `audit` | 대비·포커스·반응형을 `scripts/capture.mjs`로 직접 측정한다 |
+| 7 detector | `hooks` | `scripts/detect.mjs` 호출을 pre-commit 또는 CI에 직접 등록한다 |
 
 ## 산출물
 
@@ -159,6 +159,35 @@ S1에서 세션이 끊기므로 **다음 세션은 대화가 아니라 파일을
   대비는 **인접 바탕**에 대해 잰다: 바깥 층은 부모의 바닥, 안쪽(inset) 층은 요소 자신의 바닥,
   border처럼 경계에 걸친 층은 둘 중 나쁜 쪽. 강제한 state는 transition을 시작시키므로, 읽기 전에
   요소의 animation을 끝 상태로 보낸다.
+
+**검사 코드는 이 SKILL에 있고, 프로젝트에는 설정 하나만 남는다.** 저장소에만 있는 검사는 그
+저장소만 지키고, 다음 프로젝트는 같은 결함을 처음부터 다시 만든다(TuBrief에서 corner 단 수를
+철자로 세던 결함이 저장소 detector에서 고쳐져 전해지지 않았다 — tubrief-v2 #56).
+
+| 스크립트 | STEP | 하는 일 |
+|---|---|---|
+| [`scripts/detect.mjs`](scripts/detect.mjs) | 1 · 7 · 8 | 다섯 결함 목록 탐지 + 이월 목록 출력. findings가 있으면 exit 1 |
+| [`scripts/capture.mjs`](scripts/capture.mjs) | 1 · 5 | manifest 행마다 캡처와 기준 2·3·4 측정. 측정 실패 또는 4b 미달이면 exit 1 |
+| [`scripts/adapters/<라이브러리>.mjs`](scripts/adapters/tailwind.mjs) | — | [`ADAPTERS.md`](ADAPTERS.md) 여섯 질문의 답을 코드로. 목록에 없는 라이브러리는 새 어댑터 파일을 이 SKILL에 추가한다 |
+
+프로젝트 루트에서 `node ~/.agents/skills/design-substrate/scripts/<detect|capture>.mjs --config <설정 파일>`로
+부른다. 패키지(Playwright · 라이브러리 컴파일러)는 부르는 프로젝트의 `node_modules`에서 찾는다.
+설정 파일은 ES 모듈(`.mjs`, 또는 Node ≥ 22.18이면 `.ts`)이고 default export가 이 모양이다:
+
+- `adapter` — `scripts/adapters/` 아래 파일 이름(예: `"tailwind"`).
+- `detect` — `tokensFile`(토큰 선언 시트) · `sources`(렌더되는 모든 파일의 git glob, 시안 포함) ·
+  `primitives`(primitive 파일 glob) · `designDoc`(권위 문서) · `stylesheetBase` ·
+  `declarationSheets`(선언을 인정할 `node_modules` 시트) · `runtimeOwned`(라이브러리가 런타임에 쓰는
+  변수) · `danglingExempt`(파일·문자열·사유) · `vocabularies`(어휘 이름 → 토큰 목록) ·
+  `deferred`(이월 목록: `what · measured · threshold · authority · carriedTo`).
+- `capture` — `rows`(각 행 `id · container · smoke`와 그 밖의 서술 필드) · `themes` · `viewports`
+  (`name · width · height`) · `lang` · `base` · `out` · `statesAt`(state를 재는 viewport 이름) ·
+  `scroller`(문서 대신 스크롤되는 요소, 없으면 생략) · `setup()`(행 렌더에 필요한 계정·데이터를 읽는다.
+  `fixture`만 출력에 기록된다) · `session(row)` · `storageState(session, setup)` ·
+  `url(row, { base, lang, theme }, setup)` · 선택 `stateTargets`(기준 4 대상 이름 → selector, 기본은 어댑터).
+
+호출부가 URL을 만들어 넘기는 일 이상을 하거나, 프로젝트 `scripts/`에 판정 코드가 생기면 결함이다.
+ledger의 asset 행은 이 SKILL 안의 스크립트만 잡는 장치로 받는다(`design-loop` 「asset의 경계」).
 
 ---
 
@@ -378,15 +407,18 @@ STEP 1이 손으로 찾은 것을 기계가 다시 찾게 만든다. **탐지 �
 스캔 범위는 STEP 1의 정의 그대로다. **스캔 대상에서 디렉터리를 빼는 코드가 detector에 있으면
 그 자체가 결함이다** — 제외는 파일·사유 목록으로만 하고, 목록은 실행마다 읽힌다.
 
-**규칙의 source of truth는 저장소 스크립트**(`scripts/substrate-detect.*`)다. 훅 도구가 있으면
-그 스크립트를 **호출만** 하도록 등록한다. 규칙을 훅 도구 안에 직접 쓰면 그 도구의 버전에
-결합되고, 도구가 없는 머신에서 규칙 자체가 사라진다.
+**규칙의 source of truth는 이 SKILL의 [`scripts/detect.mjs`](scripts/detect.mjs)다**(「실행 수단」).
+프로젝트는 설정 파일에 탐지 범위 · 제외 목록 · 이월 목록만 적는다. 훅 도구가 있으면 그 스크립트를
+**호출만** 하도록 등록한다. 규칙을 훅 도구 안에 직접 쓰면 그 도구의 버전에 결합되고, 도구가 없는
+머신에서 규칙 자체가 사라진다. 같은 이유로 **훅은 이 SKILL이 없는 머신에서 커밋을 막는다** — 경고하고
+건너뛰면 규칙이 설치가 없는 머신에서 조용히 사라진다.
 
-**완료 조건:** 스크립트가 저장소에 있고, 현재 코드에 대해 findings 0건으로 실행된 출력이
-보고에 인용됐다. 예외 요청 중 `unfixable` 승인 항목은 제외 목록에 사유와 함께, `out-of-authority`
-중 ⓑ 이월 · ⓒ 출하 항목은 **이월 목록**에 `측정 · 임계 · 권위 · 이월처`와 함께 등록한다. 이월
+**완료 조건:** 설정 파일이 저장소에 있고, 그 설정으로 `detect.mjs`를 현재 코드에 대해 실행한 findings
+0건 출력이 보고에 인용됐다. 예외 요청 중 `unfixable` 승인 항목은 제외 목록에 사유와 함께, `out-of-authority`
+중 ⓑ 이월 · ⓒ 출하 항목은 **이월 목록**(설정의 `deferred`)에 `측정 · 임계 · 권위 · 이월처`와 함께 등록한다. 이월
 목록은 **매 실행마다 출력되고 종료 코드에는 영향을 주지 않는다** — 문서에만 적힌 이월은 곧
-기억되지 않는다. pre-commit 또는 CI 중 **하나가 실제로 그 스크립트를 호출하고 있고**, 그 등록 경로가 적혔다.
+기억되지 않는다. pre-commit 또는 CI 중 **하나가 실제로 그 스크립트를 호출하고 있고**(SKILL이 없으면
+실패한다), 그 등록 경로가 적혔다.
 
 ## STEP 8 — 출하 (STOP · S2)
 
