@@ -3,9 +3,9 @@
  * than a convention.
  *
  *   node <skill>/scripts/ledger.mjs close <gate-issue> --map <process-map> --comment <file>
- *   node <skill>/scripts/ledger.mjs check <gate-issue>
+ *   node <skill>/scripts/ledger.mjs check <gate-issue> [--file <draft>]
  *   node <skill>/scripts/ledger.mjs sync  <gate-issue> --map <process-map-issue>
- *   node <skill>/scripts/ledger.mjs audit --map <process-map-issue> --product <product-map-issue> [--since <date>] [--process-since <date>]
+ *   node <skill>/scripts/ledger.mjs audit --map <process-map-issue> --product <product-map-issue> [--since <date>] [--process-since <date>] [--tracker <snapshot.json>]
  *
  * Why this exists: the feedback loop failed once already, and it failed in the
  * only way a convention can — someone has to remember. Every owner finding at a
@@ -82,12 +82,26 @@
  * and only the named line tied the failure to the defect; and a red written
  * without being run (#55's `e841abb`, already fixed) has no line to paste.
  * `asset` means executable by definition, so an asset row accepts `cmd` only.
- * `check` resolves `red` and `green` with `git` in the working directory — run
- * it from the repo where the defect lived — and requires both to be ancestors
- * of HEAD: the remote carries `main` only, so a red on a side branch
+ * `check` resolves a bare `red`/`green` with `git` in the working directory —
+ * run it from the repo where the defect lived — and requires both to be
+ * ancestors of HEAD: the remote carries `main` only, so a red on a side branch
  * (`red/popup-scope`) is unverifiable from any other clone. A mutation that
  * revives a defect is committed on the working branch and reverted by the next
- * commit — red is the mutation, green the revert. A `doc` path resolves
+ * commit — red is the mutation, green the revert.
+ *
+ * The skills themselves are versioned too (`design-md/skills/`, symlinked into
+ * `~/.agents/skills`), so a defect in this script or a measurer is recorded as
+ * `red: design-md@<sha>`: the prefix is the directory name of the checkout that
+ * holds this file, and the same ancestor and reachability rules run there.
+ * Before that, every catcher living in the skills could only be written down as
+ * `doc` (process tickets #50, #54, #63). Red and green sit in one repository —
+ * the side that changed between the two runs; the side held still is not
+ * recorded, which the record-not-rerun rule above accepts. When the defect is
+ * in the command's input rather than its code — a ledger draft for `check`, a
+ * tracker state for `audit` — the input is a fixture under
+ * `design-loop/fixtures/`, and the mutation and revert are commits to it.
+ *
+ * A `doc` path resolves
  * against the working directory and then the skills root. Rows written before
  * this rule carry a bare `ticket:`, a `red:` without `green:`, or no
  * `red-line:`; `sync` and `audit` still read them as carried, and only
@@ -124,17 +138,22 @@
  * what the loop cannot tell apart from forgetting.
  *
  * Tracker: GitHub via `gh`, matching this repo family's issue-tracker doc. A
- * different tracker reimplements `readLedger`, `createTicket` and `listTickets`
- * and keeps everything else.
+ * different tracker reimplements `readLedger`, `listTickets`, `blockedBy` and
+ * `createTicket` and keeps everything else. `--tracker <snapshot.json>` swaps
+ * the three reads for a file (shape at `snapshot()`); `close` and `sync` write,
+ * so they refuse it.
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const CLASSES = new Set(["protocol", "asset", "project"]);
-const SKILLS_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+// Node resolves the symlink `~/.agents/skills/design-loop` for the main
+// module, so this is the checkout that versions the skills, not the link.
+const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
+const SKILLS_ROOT = resolve(SCRIPT_DIR, "../..");
 
 function flag(name) {
   const index = process.argv.indexOf(`--${name}`);
@@ -171,13 +190,51 @@ function isCarried(row) {
   return Boolean(row.ticket || row["caught-by"]);
 }
 
-function isCommit(ref) {
-  if (!/^[0-9a-f]{7,40}$/.test(ref)) return false;
-  return spawnSync("git", ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]).status === 0;
+function git(dir, args) {
+  return spawnSync("git", ["-C", dir, ...args], { encoding: "utf8" });
 }
 
-function isAncestor(ref, of) {
-  return spawnSync("git", ["merge-base", "--is-ancestor", ref, of]).status === 0;
+// The repository that versions this script, if any — the only one a
+// `<name>@<sha>` reference may name. Its name is the checkout's directory name.
+let skillsRepoCache;
+function skillsRepo() {
+  if (skillsRepoCache === undefined) {
+    const top = git(SCRIPT_DIR, ["rev-parse", "--show-toplevel"]);
+    skillsRepoCache = top.status === 0 ? { name: basename(top.stdout.trim()), dir: top.stdout.trim() } : null;
+  }
+  return skillsRepoCache;
+}
+
+// A recorded red/green: `<sha>` is a commit in the working directory's
+// repository, `<name>@<sha>` one in the skills repository. Returns
+// { sha, dir, where } or { error }.
+function parseRef(ref) {
+  const match = ref.match(/^(?:([\w.-]+)@)?([0-9a-f]{7,40})$/);
+  if (!match) return { error: `${ref} is not a commit reference — <sha>, or <repo>@<sha> for the skills repository` };
+  const [, name, sha] = match;
+  if (!name) return { sha, dir: process.cwd(), where: process.cwd() };
+  const repo = skillsRepo();
+  if (!repo) return { error: `${ref} names a repository, but ${SCRIPT_DIR} is in none` };
+  if (repo.name !== name) return { error: `${name}@ is not the skills repository — the only prefix here is ${repo.name}@ (${repo.dir})` };
+  return { sha, dir: repo.dir, where: `${name} (${repo.dir})` };
+}
+
+function isCommit({ sha, dir }) {
+  return git(dir, ["rev-parse", "--verify", "--quiet", `${sha}^{commit}`]).status === 0;
+}
+
+function isAncestor({ sha, dir }, of) {
+  return git(dir, ["merge-base", "--is-ancestor", sha, of]).status === 0;
+}
+
+// Reachability is judged against each remote as it is now, not as this clone
+// last saw it; a repository is fetched once, on its first reference.
+const fetched = new Set();
+function fetchMain(dir) {
+  if (fetched.has(dir)) return;
+  const result = git(dir, ["fetch", "--quiet", "origin", "main"]);
+  if (result.status !== 0) throw new Error(`git fetch origin main in ${dir} failed: ${result.stderr.trim()}`);
+  fetched.add(dir);
 }
 
 // Where a recorded commit can still be found, for `audit`: on the remote
@@ -185,9 +242,11 @@ function isAncestor(ref, of) {
 // the normal gap between close and push, 26h for #44), or nowhere a branch
 // keeps it (its branch was deleted unpushed, or this clone never had it).
 function reach(ref) {
-  if (!isCommit(ref)) return "unreachable";
-  if (isAncestor(ref, "origin/main")) return "pushed";
-  const branches = spawnSync("git", ["for-each-ref", "--contains", ref, "refs/heads"], { encoding: "utf8" });
+  const parsed = parseRef(ref);
+  if (parsed.error || !isCommit(parsed)) return "unreachable";
+  fetchMain(parsed.dir);
+  if (isAncestor(parsed, "origin/main")) return "pushed";
+  const branches = git(parsed.dir, ["for-each-ref", "--contains", parsed.sha, "refs/heads"]);
   return branches.status === 0 && branches.stdout.trim() ? "unpushed" : "unreachable";
 }
 
@@ -213,10 +272,16 @@ function catcher(row) {
     if (!row["red-line"]) return { kind, problem: "caught-by: cmd needs red-line: <the output line of the red run that names this defect, verbatim>" };
     if (!row.green) return { kind, problem: "caught-by: cmd needs green: <commit where it exits 0 with the defect fixed>" };
     if (row.red === row.green) return { kind, problem: `red and green are both ${row.red} — one commit cannot carry the defect and its fix` };
-    for (const ref of [row.red, row.green]) {
-      if (!isCommit(ref)) return { kind, problem: `${ref} is not a commit in ${process.cwd()}` };
+    const refs = [row.red, row.green].map(parseRef);
+    for (const ref of refs) if (ref.error) return { kind, problem: ref.error };
+    if (refs[0].dir !== refs[1].dir) {
+      return { kind, problem: `red ${row.red} and green ${row.green} are in different repositories — record the side that changed between the two runs` };
+    }
+    for (const [index, ref] of refs.entries()) {
+      const written = index === 0 ? row.red : row.green;
+      if (!isCommit(ref)) return { kind, problem: `${written} is not a commit in ${ref.where}` };
       if (!isAncestor(ref, "HEAD")) {
-        return { kind, problem: `${ref} is not an ancestor of HEAD — a side branch never reaches main; commit the mutation and its revert on this branch` };
+        return { kind, problem: `${written} is not an ancestor of HEAD in ${ref.where} — a side branch never reaches main; commit the mutation and its revert on this branch` };
       }
     }
     return { kind };
@@ -255,6 +320,31 @@ function validate(rows) {
   return failures;
 }
 
+// `--tracker <file>` replaces the three tracker reads — an issue's text, a
+// map's children, a product map's blockers — with a snapshot, so a defect that
+// lives in tracker state can be committed as a fixture and give `audit` a
+// red/green pair. Shape:
+//   { "issues": { "<n>": { "title", "body", "comments": ["…"], "state",
+//                          "stateReason", "closedAt" } },
+//     "subIssues": { "<map>": [<n>, …] }, "blockedBy": { "<product>": [<n>, …] } }
+let snapshotCache;
+function snapshot() {
+  const file = flag("tracker");
+  if (!file) return null;
+  snapshotCache ??= JSON.parse(readFileSync(file, "utf8"));
+  return snapshotCache;
+}
+
+function snapshotIssue(n) {
+  const issue = snapshot().issues?.[String(n)];
+  if (!issue) throw new Error(`--tracker ${flag("tracker")} has no issue ${n}`);
+  return issue;
+}
+
+function repoName() {
+  return gh(["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]).trim();
+}
+
 function readLedger(issue, extraText = "") {
   // `--file` reads a ledger draft off disk instead of the tracker, so a round
   // can validate its ledger before posting it.
@@ -262,19 +352,24 @@ function readLedger(issue, extraText = "") {
   if (file) {
     return { title: `(file) ${file}`, rows: parseLedger(readFileSync(file, "utf8")) };
   }
-  const payload = JSON.parse(
-    gh(["issue", "view", String(issue), "--json", "body,comments,title"]),
-  );
-  const text = [payload.body, ...payload.comments.map((c) => c.body), extraText].join(
+  const payload = snapshot()
+    ? { ...snapshotIssue(issue), comments: (snapshotIssue(issue).comments ?? []).map((body) => ({ body })) }
+    : JSON.parse(gh(["issue", "view", String(issue), "--json", "body,comments,title"]));
+  const text = [payload.body ?? "", ...payload.comments.map((c) => c.body), extraText].join(
     "\n\n",
   );
   return { title: payload.title, rows: parseLedger(text) };
 }
 
 function listTickets(map) {
-  const repo = gh(["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]).trim();
+  if (snapshot()) {
+    return (snapshot().subIssues?.[String(map)] ?? []).map((n) => {
+      const issue = snapshotIssue(n);
+      return { number: n, title: issue.title, state: issue.state, stateReason: issue.stateReason ?? null, closedAt: issue.closedAt ?? null, body: issue.body ?? "" };
+    });
+  }
   const children = JSON.parse(
-    gh(["api", `repos/${repo}/issues/${map}/sub_issues`, "--paginate"]),
+    gh(["api", `repos/${repoName()}/issues/${map}/sub_issues`, "--paginate"]),
   );
   return children.map((child) => ({
     number: child.number,
@@ -286,8 +381,17 @@ function listTickets(map) {
   }));
 }
 
+function blockedBy(product) {
+  if (snapshot()) return new Set(snapshot().blockedBy?.[String(product)] ?? []);
+  return new Set(
+    JSON.parse(gh(["api", `repos/${repoName()}/issues/${product}/dependencies/blocked_by`, "--paginate"])).map(
+      (issue) => issue.number,
+    ),
+  );
+}
+
 function createTicket({ map, row, gate, gateTitle }) {
-  const repo = gh(["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]).trim();
+  const repo = repoName();
   const label = row.class === "asset" ? "wayfinder:task" : "wayfinder:grilling";
   const body = [
     "## Question",
@@ -328,6 +432,10 @@ function createTicket({ map, row, gate, gateTitle }) {
 }
 
 const [command, target] = process.argv.slice(2);
+
+if ((command === "close" || command === "sync") && flag("tracker")) {
+  throw new Error("--tracker is a read-only snapshot; close and sync write to the tracker");
+}
 
 if (command === "check") {
   const { rows } = readLedger(target);
@@ -409,11 +517,7 @@ if (command === "check") {
   if (!map || !product) throw new Error("audit needs --map and --product");
   const tickets = listTickets(map);
   const gates = listTickets(product);
-  const repo = gh(["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]).trim();
-  // Reachability is judged against the remote as it is now, not as this clone
-  // last saw it.
-  const fetched = spawnSync("git", ["fetch", "--quiet", "origin", "main"], { encoding: "utf8" });
-  if (fetched.status !== 0) throw new Error(`git fetch origin main failed: ${fetched.stderr.trim()}`);
+  // Each recorded commit's remote is fetched on its first reference (`reach`).
   // `closed_at` is an ISO timestamp, so a plain string comparison works for a
   // date (`2026-09-21` holds everything closed on that day) and for a timestamp.
   const held = (ticket, since) => ticket.state === "closed" && !(since && ticket.closedAt && ticket.closedAt < since);
@@ -456,11 +560,7 @@ if (command === "check") {
       console.log(`UNRECORDED  #${ticket.number} closed ${ticket.closedAt?.slice(0, 10) ?? "?"} without a ledger block${isProcess ? " (process ticket)" : ""}`);
     }
   }
-  const blockers = new Set(
-    JSON.parse(
-      gh(["api", `repos/${repo}/issues/${product}/dependencies/blocked_by`, "--paginate"]),
-    ).map((issue) => issue.number),
-  );
+  const blockers = blockedBy(product);
   let unwired = 0;
   for (const ticket of tickets) {
     if (ticket.state !== "open" || !/ledger-source: \d+ ::/.test(ticket.body)) continue;
