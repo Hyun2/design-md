@@ -90,7 +90,8 @@ export function cornerFamily(css, primitiveTexts) {
   const resolved = [
     ...new Set(
       Object.keys(used)
-        .filter((s) => s !== "full" && s !== "none"),
+        .filter((s) => s !== "full" && s !== "none")
+        .map(stepValue),
     ),
   ];
   return { used, resolved };
