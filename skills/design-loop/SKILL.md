@@ -270,6 +270,18 @@ gate 이슈에 추가한다.** 이것이 이 loop에서 유일하게 자동화�
     `origin/main`에 없으면 로컬 브랜치에 있을 때 `UNPUSHED`(목록만), 어디에도 없으면
     `UNREACHABLE`(exit 1)로 보고한다. close와 push 사이의 간격은 정상이고(#44에서 26시간),
     그때 실패시키면 배포를 강제하게 된다.
+  - **결함이나 잡는 장치가 공정 자산(스킬) 쪽에 있으면** red/green을 `design-md@<sha>`로 적는다.
+    두 스킬(`design-loop`·`design-substrate`)의 원본은 `design-md` 저장소의 `skills/`이고
+    `~/.agents/skills/<이름>`은 symlink다. 접두사는 `ledger.mjs`가 들어 있는 checkout의 폴더
+    이름과 같아야 하고, HEAD 조상·`UNPUSHED`/`UNREACHABLE` 판정은 그 저장소에서 한다. red와
+    green은 **같은 저장소**, 두 실행 사이에 **바뀐 쪽**이다(바뀌지 않은 쪽의 버전은 기록되지
+    않는다 — 기록이지 재현이 아니므로 받아들인다). 이 형식이 생기기 전 스킬 안의 잡는 장치는
+    `doc`으로만 적혔다(#50·#54 4행, #63).
+  - **결함이 명령의 코드가 아니라 입력에 있으면**(`check`에 넣는 ledger 초안, `audit`이 읽는
+    tracker 상태) 그 입력을 `design-loop/fixtures/`의 fixture로 두고 변이 → revert를 fixture에
+    한다. tracker 상태는 `audit --tracker <snapshot.json>`으로 넣는다 — 세 읽기(이슈 본문·코멘트,
+    지도의 하위 이슈, 제품 지도의 `blocked_by`)를 파일로 바꾸고, 쓰는 `close`·`sync`는 이 옵션을
+    거부한다.
   - `asset` 줄은 `cmd`만 받는다.
   - `caught-by: doc <경로> — <절>` — 사람이 읽고 적용해야 하는 문장. `check` 출력에
     「document only」로 따로 세어, 문서 반영이 집행으로 보고되지 않게 한다.
