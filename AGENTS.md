@@ -3,6 +3,11 @@
 제품 하나당 디렉터리 하나다. `./<slug>/DESIGN.md`는 토큰·규칙 명세, `./<slug>/preview.html`은
 그 명세가 렌더링된 참조 페이지(캐시된 경우).
 
+예외는 `./skills/` 하나다. 제품이 아니라 이 라이브러리를 쓰는 디자인 공정 스킬(`design-loop`,
+`design-substrate`)의 원본이고, `~/.agents/skills/<이름>`이 symlink로 가리킨다. 공정의 ledger가
+red/green을 `design-md@<sha>`로 이 저장소의 commit에 묶기 때문에 여기서 버전 관리한다
+(tubrief-v2 #63).
+
 ## UI 작업 절차
 
 1. `./<slug>/DESIGN.md`를 읽는다. 색·타입 스케일·간격·컴포넌트·모션의 source of truth다.
