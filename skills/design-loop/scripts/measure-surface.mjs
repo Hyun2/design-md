@@ -19,14 +19,15 @@
  * overridden downstream.
  *
  * Criteria 1-7 are the element criteria in REFERENCE.md; 8-12 are the
- * relational ones. 8, 9, 11 and 12 fail the run: controls on one line of
- * different heights (or no visible marked control at all), a picture of which
- * under 95% is on screen (or one that cannot be read), a display heading that
- * wraps into lines under 70% of its column, a sentence of 24+ characters
- * printed twice. `data-comp-exempt="<criterion>: <reason>"` takes an element
+ * relational ones, and every one of 8-12 fails the run: controls on one line
+ * of different heights (or no visible marked control at all), a picture of
+ * which under 95% is on screen (or one that cannot be read), a painted box
+ * set beside another with an empty band of 4rem and 15% of its height, a
+ * display heading that wraps into lines under 70% of its column, a sentence
+ * of 24+ characters printed twice.
+ * `data-comp-exempt="<criterion>: <reason>"` takes an element
  * out of that judgement and into `relational.exempted`, which the submission
- * shows the owner. 10 is reported only: its definition did not tell the G1
- * defect from its fix (`relational.unverified`). Only 8 needs a
+ * shows the owner. Only 8 needs a
  * markup contract: `data-comp-control="<name>"` on each control that shares a
  * line. The accent region needs one too:
  * `data-comp-accent="1"` on every element that owns the accent fill. The
@@ -262,7 +263,7 @@ const MEASURE = (rootSelector) => `async () => {
   for (const role of ['sans', 'catalogue', 'notation']) {
     faces[role] = getComputedStyle(root).getPropertyValue('--font-' + role).trim().split(',')[0];
   }
-  // Declared exceptions to the gated relational criteria (8, 9, 11, 12):
+  // Declared exceptions to the gated relational criteria (8-12):
   // \`data-comp-exempt="<criterion>: <reason>"\` on the element or an ancestor,
   // several joined by \`;\`. An exempt element leaves the judgement and lands in
   // \`exempted\` with its reason, which the submission puts before the owner —
@@ -276,7 +277,7 @@ const MEASURE = (rootSelector) => `async () => {
     const reasons = new Map();
     for (const part of a.getAttribute('data-comp-exempt').split(';')) {
       const m = part.match(/^\\s*(\\d+)\\s*:\\s*(\\S.*)$/);
-      if (m && [8, 9, 11, 12].includes(Number(m[1]))) reasons.set(Number(m[1]), m[2].trim());
+      if (m && [8, 9, 10, 11, 12].includes(Number(m[1]))) reasons.set(Number(m[1]), m[2].trim());
       else badExempt.push(part.trim());
     }
     declared.set(a, reasons);
@@ -330,18 +331,84 @@ const MEASURE = (rootSelector) => `async () => {
     if (l.spreadPx > 0) relationalDefects.push('criterion 8: controls on one line differ by ' + l.spreadPx + 'px (' + l.names.join(', ') + ')');
   }
 
-  // 10 — do side-by-side columns end together, and is either one mostly empty?
-  // DEFINITION UNVERIFIED: it passed the G1 defect and failed its fix.
-  // Reported per grid with more than one visible child: the height spread, and
-  // how much of the tallest child's height its own content actually uses.
-  const columnSets = [];
-  for (const el of all) {
-    if (getComputedStyle(el).display !== 'grid') continue;
-    const kids = [...el.children].filter((k) => k.getBoundingClientRect().height > 80);
+  // 10 — column void: a painted box set beside another in one row, with a
+  // band inside it that nothing occupies. In 2026-09 G1 a summary box was
+  // stretched to the 662px stage beside it and a flex-1 list pinned its
+  // footer to the bottom, leaving a 350px band in the middle — so the band is
+  // the tallest empty slice anywhere in the box, not the space under its last
+  // line (2.7% there). Height spread is not the defect: the fix ended the box
+  // at its content, 266px short of the stage. Painted = a background that
+  // changes the ground, a background image, a border or a shadow; an unpainted
+  // column that ends early is page ground, not an empty box. Ink = lines of
+  // text, pictures and painted descendants. 4rem keeps the gaps between
+  // paragraphs of a short box out (21px), 15% the section gaps of a long one.
+  const remPx = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+  const voidMinPx = 4 * remPx;
+  const voidMinPct = 15;
+  const groundDiffers = (a, b) => a.some((c, i) => Math.abs(c - b[i]) > 1);
+  const paintsBox = (el) => {
+    const s = getComputedStyle(el);
+    if (s.backgroundImage && s.backgroundImage !== 'none') return true;
+    const bg = parse(s.backgroundColor);
+    if (bg && bg[3] > 0 && el.parentElement && groundDiffers(composite(el), composite(el.parentElement))) return true;
+    return k.paintedLayers(el).some((l) => l.kind !== 'outline');
+  };
+  const boxLabel = (el) => el.tagName.toLowerCase() + (typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\\s+/).slice(0, 3).join('.') : '');
+  const inkBands = (box) => {
+    const r = box.getBoundingClientRect();
+    const s = getComputedStyle(box);
+    const top = r.top + (parseFloat(s.borderTopWidth) || 0);
+    const bottom = r.bottom - (parseFloat(s.borderBottomWidth) || 0);
+    const ink = [];
+    const add = (q) => {
+      const y1 = Math.max(top, q.top);
+      const y2 = Math.min(bottom, q.bottom);
+      if (q.right > r.left && q.left < r.right && y2 > y1) ink.push([y1, y2]);
+    };
+    const walker = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
+    for (let t = walker.nextNode(); t; t = walker.nextNode()) {
+      if (!t.nodeValue.trim() || !visible(t.parentElement)) continue;
+      const range = document.createRange();
+      range.selectNodeContents(t);
+      for (const q of range.getClientRects()) if (q.width > 0 && q.height > 0) add(q);
+    }
+    for (const el of box.querySelectorAll('*')) {
+      if (!visible(el)) continue;
+      if (el.matches('img,video,svg,canvas,picture,iframe') || paintsBox(el)) add(el.getBoundingClientRect());
+    }
+    ink.sort((a, b) => a[0] - b[0]);
+    let cursor = top;
+    let band = { from: top, px: 0 };
+    for (const [y1, y2] of ink) {
+      if (y1 - cursor > band.px) band = { from: cursor, px: y1 - cursor };
+      cursor = Math.max(cursor, y2);
+    }
+    if (bottom - cursor > band.px) band = { from: cursor, px: bottom - cursor };
+    return { heightPx: r.height, bandPx: band.px, bandFromPx: band.from - r.top };
+  };
+  const columnVoids = [];
+  for (const parent of [root, ...all]) {
+    const s = getComputedStyle(parent);
+    const grid = s.display === 'grid' || s.display === 'inline-grid';
+    const rowFlex = (s.display === 'flex' || s.display === 'inline-flex') && s.flexDirection.startsWith('row');
+    if ((!grid && !rowFlex) || !visible(parent)) continue;
+    const kids = [...parent.children].filter(visible);
     if (kids.length < 2) continue;
-    const heights = kids.map((k) => Math.round(k.getBoundingClientRect().height));
-    const fills = kids.map((k) => Math.min(100, Math.round((k.scrollHeight / Math.max(1, k.getBoundingClientRect().height)) * 100)));
-    columnSets.push({ heights, spreadPx: Math.max(...heights) - Math.min(...heights), fillPct: fills });
+    // A row is siblings whose vertical extents overlap and horizontal ones do
+    // not: a stack at 390px and two rows of a gallery are not side by side.
+    const rects = kids.map((el) => el.getBoundingClientRect());
+    const beside = kids.map((_, i) => rects.some((o, j) => j !== i && rects[i].top < o.bottom && o.top < rects[i].bottom && (rects[i].right <= o.left || o.right <= rects[i].left)));
+    kids.forEach((el, i) => {
+      if (!beside[i] || rects[i].height < voidMinPx || !paintsBox(el)) return;
+      const m = inkBands(el);
+      const pct = Number(((m.bandPx / m.heightPx) * 100).toFixed(1));
+      const label = boxLabel(el);
+      const text = (el.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 32);
+      columnVoids.push({ box: label, text, heightPx: Math.round(m.heightPx), bandPx: Math.round(m.bandPx), bandFromPx: Math.round(m.bandFromPx), bandPct: pct });
+      if (m.bandPx >= voidMinPx && pct >= voidMinPct && !exempt(el, 10, 'box ' + label)) {
+        relationalDefects.push('criterion 10: ' + label + ' "' + text + '" has an empty band of ' + Math.round(m.bandPx) + 'px (' + pct + '% of ' + Math.round(m.heightPx) + 'px) starting ' + Math.round(m.bandFromPx) + 'px from its top');
+      }
+    });
   }
 
   // 11 — does a display-size heading use the column it was given?
@@ -547,7 +614,7 @@ const MEASURE = (rootSelector) => `async () => {
   hitAll.remove();
   for (const [n, [left, top]] of scrolled) { n.scrollLeft = left; n.scrollTop = top; }
 
-  for (const part of badExempt) relationalDefects.push('data-comp-exempt "' + part + '" is not "<8|9|11|12>: <reason>"');
+  for (const part of badExempt) relationalDefects.push('data-comp-exempt "' + part + '" is not "<8|9|10|11|12>: <reason>"');
 
   return {
     dominant: {
@@ -576,18 +643,15 @@ const MEASURE = (rootSelector) => `async () => {
     // within threshold while that pair sat misaligned.
     controls,
     media,
-    columnSets,
+    columnVoids,
     headings,
     duplicates,
     // Gated relational criteria and what failed them; declared exceptions
-    // with their reasons; the criteria still reported without a gate.
+    // with their reasons; pictures that could not be read.
     relational: {
-      gated: [8, 9, 11, 12],
+      gated: [8, 9, 10, 11, 12],
       defects: relationalDefects,
       exempted,
-      unverified: {
-        10: 'https://github.com/Hyun2/tubrief-v2/issues/62',
-      },
       mediaUnread,
     },
     // Values the kernel could not read. Any at all makes this row a failed
