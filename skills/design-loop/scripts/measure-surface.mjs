@@ -19,13 +19,14 @@
  * overridden downstream.
  *
  * Criteria 1-7 are the element criteria in REFERENCE.md; 8-12 are the
- * relational ones. 8, 11 and 12 fail the run: controls on one line of
- * different heights (or no visible marked control at all), a display heading
- * that wraps into lines under 70% of its column, a sentence of 24+ characters
+ * relational ones. 8, 9, 11 and 12 fail the run: controls on one line of
+ * different heights (or no visible marked control at all), a picture of which
+ * under 95% is on screen (or one that cannot be read), a display heading that
+ * wraps into lines under 70% of its column, a sentence of 24+ characters
  * printed twice. `data-comp-exempt="<criterion>: <reason>"` takes an element
  * out of that judgement and into `relational.exempted`, which the submission
- * shows the owner. 9 and 10 are reported only: their definitions did not tell
- * the G1 defects from their fixes (`relational.unverified`). Only 8 needs a
+ * shows the owner. 10 is reported only: its definition did not tell the G1
+ * defect from its fix (`relational.unverified`). Only 8 needs a
  * markup contract: `data-comp-control="<name>"` on each control that shares a
  * line. The accent region needs one too:
  * `data-comp-accent="1"` on every element that owns the accent fill. The
@@ -153,7 +154,7 @@ const VISIBLE = `(el) => {
   return true;
 }`;
 
-const MEASURE = (rootSelector) => `() => {
+const MEASURE = (rootSelector) => `async () => {
   const ROOT_SELECTOR = ${JSON.stringify(rootSelector)};
   const k = globalThis.__colorKernel;
   if (!k || !k.ready) return { measurementFailed: 'colour kernel: ' + (k ? k.error : 'not installed') };
@@ -261,7 +262,7 @@ const MEASURE = (rootSelector) => `() => {
   for (const role of ['sans', 'catalogue', 'notation']) {
     faces[role] = getComputedStyle(root).getPropertyValue('--font-' + role).trim().split(',')[0];
   }
-  // Declared exceptions to the gated relational criteria (8, 11, 12):
+  // Declared exceptions to the gated relational criteria (8, 9, 11, 12):
   // \`data-comp-exempt="<criterion>: <reason>"\` on the element or an ancestor,
   // several joined by \`;\`. An exempt element leaves the judgement and lands in
   // \`exempted\` with its reason, which the submission puts before the owner —
@@ -275,7 +276,7 @@ const MEASURE = (rootSelector) => `() => {
     const reasons = new Map();
     for (const part of a.getAttribute('data-comp-exempt').split(';')) {
       const m = part.match(/^\\s*(\\d+)\\s*:\\s*(\\S.*)$/);
-      if (m && [8, 11, 12].includes(Number(m[1]))) reasons.set(Number(m[1]), m[2].trim());
+      if (m && [8, 9, 11, 12].includes(Number(m[1]))) reasons.set(Number(m[1]), m[2].trim());
       else badExempt.push(part.trim());
     }
     declared.set(a, reasons);
@@ -328,24 +329,6 @@ const MEASURE = (rootSelector) => `() => {
   for (const l of controlLines) {
     if (l.spreadPx > 0) relationalDefects.push('criterion 8: controls on one line differ by ' + l.spreadPx + 'px (' + l.names.join(', ') + ')');
   }
-
-  // 9 — is any picture being cropped by its box? DEFINITION UNVERIFIED: this
-  // ratio did not tell the G1 defect from its fix, so it is reported, never
-  // gated, until the definition ticket named in \`unverified\` closes.
-  // A thumbnail is information, and a box whose ratio disagrees with the
-  // image's throws part of it away. Every defect of this kind in the round came
-  // from capping height on a fixed-ratio box, or from laying a band over the
-  // picture's foot.
-  const media = [...root.querySelectorAll('img')].map((img) => {
-    const rect = img.getBoundingClientRect();
-    const boxRatio = rect.height > 0 ? rect.width / rect.height : 0;
-    const naturalRatio = img.naturalHeight > 0 ? img.naturalWidth / img.naturalHeight : 0;
-    const fit = getComputedStyle(img).objectFit;
-    const coveredPct = naturalRatio > 0 && boxRatio > 0
-      ? Number((Math.min(1, Math.min(boxRatio, naturalRatio) / Math.max(boxRatio, naturalRatio)) * 100).toFixed(1))
-      : null;
-    return { w: Math.round(rect.width), h: Math.round(rect.height), boxRatio: Number(boxRatio.toFixed(2)), naturalRatio: Number(naturalRatio.toFixed(2)), fit, coveredPct };
-  }).filter((m) => m.w > 200);
 
   // 10 — do side-by-side columns end together, and is either one mostly empty?
   // DEFINITION UNVERIFIED: it passed the G1 defect and failed its fix.
@@ -403,7 +386,160 @@ const MEASURE = (rootSelector) => `() => {
   }
   const duplicates = [...seen.entries()].filter(([, n]) => n > 1).map(([text, n]) => ({ text: text.slice(0, 48), count: n }));
   for (const d of duplicates) relationalDefects.push('criterion 12: "' + d.text + '" is printed ' + d.count + ' times');
-  for (const part of badExempt) relationalDefects.push('data-comp-exempt "' + part + '" is not "<8|11|12>: <reason>"');
+
+  // 9 — how much of each picture is actually on screen? The author's
+  // aspect-ratio (on the img or the box around it) says what shape the picture
+  // is, and three things take part of it away: fit — object-fit cover/none on
+  // a box whose rendered ratio left the declared one, as when a height cap
+  // stretches a 16:9 box wide and trims top and bottom; clip — an ancestor
+  // with overflow hidden or clip; cover — something painted on top. In
+  // 2026-09 G1 a title band laid over the lead thumbnail hid 40% of it, and the
+  // old measure (img box ÷ file ratio) read 75% before and after the fix: a
+  // YouTube hqdefault file is 4:3 with black bands around 16:9 content, so the
+  // file is the reference only when nothing is declared. Each picture is
+  // scrolled into view first, so a lazy one loads; one with neither a declared
+  // ratio nor a loaded file is a failed measurement, not a pass. Last in this
+  // function because it scrolls; the scroll is put back afterwards. Only this
+  // window scrolls: scrollIntoView also scrolls a preview shell around the
+  // frame, and the operability check then clicked into a moved shell.
+  const ratioOf = (value) => {
+    const m = String(value).match(/([\\d.]+)\\s*(?:\\/\\s*([\\d.]+))?\\s*$/);
+    if (!m) return null;
+    const r = m[2] ? Number(m[1]) / Number(m[2]) : Number(m[1]);
+    return r > 0 && Number.isFinite(r) ? r : null;
+  };
+  const paints = (el, x, y) => {
+    const s = getComputedStyle(el);
+    if (s.visibility === 'hidden' || Number(s.opacity) === 0) return false;
+    const bg = parse(s.backgroundColor);
+    if ((bg && bg[3] > 0) || s.backgroundImage !== 'none') return true;
+    if (el instanceof SVGElement || ['IMG', 'VIDEO', 'CANVAS'].includes(el.tagName)) return true;
+    for (const n of el.childNodes) {
+      if (n.nodeType !== 3 || !n.textContent.trim()) continue;
+      const range = document.createRange();
+      range.selectNodeContents(n);
+      const hit = [...range.getClientRects()].some((r) => x >= r.left && x <= r.right && y >= r.top && y <= r.bottom);
+      range.detach();
+      if (hit) return true;
+    }
+    return false;
+  };
+  const tagOf = (el) => el.tagName.toLowerCase() + (typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\\s+/).slice(0, 3).join('.') : '');
+  const startX = scrollX;
+  const startY = scrollY;
+  // Hit-testing skips pointer-events:none, and a band that ignores the pointer
+  // still hides the picture.
+  const hitAll = document.createElement('style');
+  hitAll.textContent = '* { pointer-events: auto !important; }';
+  document.head.appendChild(hitAll);
+  const media = [];
+  let mediaUnread = 0;
+  const pictures = [...root.querySelectorAll('img')].filter((img) => visible(img) && img.getBoundingClientRect().width > 200);
+  for (const img of pictures) {
+    const src = img.currentSrc || img.src || '';
+    const name = src.startsWith('data:') ? (img.alt || 'inline image') : src.split('/').slice(-2).join('/').slice(0, 48);
+    const at = img.getBoundingClientRect();
+    window.scrollTo({ left: at.left + scrollX + at.width / 2 - innerWidth / 2, top: at.top + scrollY + at.height / 2 - innerHeight / 2, behavior: 'instant' });
+    if (!img.complete) {
+      await new Promise((done) => {
+        img.addEventListener('load', done, { once: true });
+        img.addEventListener('error', done, { once: true });
+        setTimeout(done, 3000);
+      });
+    }
+    let declared = null;
+    let declaredBy = 'file';
+    for (let n = img; n && n.nodeType === 1; n = n === root ? null : n.parentElement) {
+      const r = ratioOf(getComputedStyle(n).aspectRatio);
+      if (r) { declared = r; declaredBy = n === img ? 'self' : 'ancestor'; break; }
+    }
+    const reference = declared ?? (img.naturalHeight > 0 ? img.naturalWidth / img.naturalHeight : null);
+    if (reference === null) {
+      mediaUnread += 1;
+      media.push({ name, unread: 'no declared aspect-ratio and the file did not load' });
+      relationalDefects.push('criterion 9: picture ' + name + ' could not be read — no declared aspect-ratio and the file did not load');
+      continue;
+    }
+    const rect = img.getBoundingClientRect();
+    const boxRatio = rect.width / rect.height;
+    const objectFit = getComputedStyle(img).objectFit;
+    const fitShare = objectFit === 'cover' || objectFit === 'none' ? Math.min(boxRatio, reference) / Math.max(boxRatio, reference) : 1;
+    let cl = rect.left;
+    let ct = rect.top;
+    let cr = rect.right;
+    let cb = rect.bottom;
+    for (let n = img.parentElement; n; n = n.parentElement) {
+      const s = getComputedStyle(n);
+      const hx = s.overflowX === 'hidden' || s.overflowX === 'clip';
+      const hy = s.overflowY === 'hidden' || s.overflowY === 'clip';
+      if (!hx && !hy) continue;
+      const b = n.getBoundingClientRect();
+      if (hx) { cl = Math.max(cl, b.left + n.clientLeft); cr = Math.min(cr, b.left + n.clientLeft + n.clientWidth); }
+      if (hy) { ct = Math.max(ct, b.top + n.clientTop); cb = Math.min(cb, b.top + n.clientTop + n.clientHeight); }
+    }
+    const clipShare = (Math.max(0, cr - cl) * Math.max(0, cb - ct)) / (rect.width * rect.height);
+    // A 20×20 grid over the unclipped part, in document coordinates so a
+    // picture taller than the window is sampled by scrolling the window.
+    const docLeft = cl + scrollX;
+    const docTop = ct + scrollY;
+    const cellW = Math.max(0, cr - cl) / 20;
+    const cellH = Math.max(0, cb - ct) / 20;
+    let sampled = 0;
+    let free = 0;
+    const coveredBy = new Map();
+    for (let row = 0; row < 20 && cellW > 0 && cellH > 0; row += 1) {
+      for (let col = 0; col < 20; col += 1) {
+        const docX = docLeft + (col + 0.5) * cellW;
+        const docY = docTop + (row + 0.5) * cellH;
+        let x = docX - scrollX;
+        let y = docY - scrollY;
+        if (x < 0 || x >= innerWidth || y < 0 || y >= innerHeight) {
+          window.scrollTo({ left: docX - innerWidth / 2, top: docY - innerHeight / 2, behavior: 'instant' });
+          x = docX - scrollX;
+          y = docY - scrollY;
+          if (x < 0 || x >= innerWidth || y < 0 || y >= innerHeight) continue;
+        }
+        sampled += 1;
+        const stack = document.elementsFromPoint(x, y);
+        let cover = null;
+        let reached = false;
+        for (const el of stack) {
+          if (el === img) { reached = true; break; }
+          if (paints(el, x, y)) { cover = el; break; }
+        }
+        if (!cover && !reached) cover = stack[0] ?? null;
+        if (cover) coveredBy.set(tagOf(cover), (coveredBy.get(tagOf(cover)) ?? 0) + 1);
+        else free += 1;
+      }
+    }
+    const uncoveredShare = sampled > 0 ? free / sampled : 0;
+    const visiblePct = Number((fitShare * clipShare * uncoveredShare * 100).toFixed(1));
+    const covers = [...coveredBy.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3)
+      .map(([what, n]) => ({ what, pct: Number(((n / Math.max(1, sampled)) * 100).toFixed(1)) }));
+    media.push({
+      name,
+      w: Math.round(rect.width),
+      h: Math.round(rect.height),
+      declaredRatio: Number(reference.toFixed(3)),
+      declaredBy,
+      boxRatio: Number(boxRatio.toFixed(3)),
+      objectFit,
+      fitPct: Number((fitShare * 100).toFixed(1)),
+      clipPct: Number((clipShare * 100).toFixed(1)),
+      uncoveredPct: Number((uncoveredShare * 100).toFixed(1)),
+      visiblePct,
+      coveredBy: covers,
+      sampledPoints: sampled,
+    });
+    if (visiblePct < 95 && !exempt(img, 9, 'picture ' + name)) {
+      const by = covers.length ? ' — covered by ' + covers.map((c) => c.what + ' ' + c.pct + '%').join(', ') : '';
+      relationalDefects.push('criterion 9: picture ' + name + ' shows ' + visiblePct + '% (fit ' + (fitShare * 100).toFixed(1) + '%, clip ' + (clipShare * 100).toFixed(1) + '%, uncovered ' + (uncoveredShare * 100).toFixed(1) + '%)' + by);
+    }
+  }
+  hitAll.remove();
+  window.scrollTo({ left: startX, top: startY, behavior: 'instant' });
+
+  for (const part of badExempt) relationalDefects.push('data-comp-exempt "' + part + '" is not "<8|9|11|12>: <reason>"');
 
   return {
     dominant: {
@@ -438,13 +574,13 @@ const MEASURE = (rootSelector) => `() => {
     // Gated relational criteria and what failed them; declared exceptions
     // with their reasons; the criteria still reported without a gate.
     relational: {
-      gated: [8, 11, 12],
+      gated: [8, 9, 11, 12],
       defects: relationalDefects,
       exempted,
       unverified: {
-        9: 'https://github.com/Hyun2/tubrief-v2/issues/61',
         10: 'https://github.com/Hyun2/tubrief-v2/issues/62',
       },
+      mediaUnread,
     },
     // Values the kernel could not read. Any at all makes this row a failed
     // measurement: the numbers above were taken with pieces missing.

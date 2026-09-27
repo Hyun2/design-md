@@ -102,7 +102,7 @@ owner에게 확인받는다. 근거를 못 찾은 항목은 빈칸으로 두고 
    화면이 있으면 `--baseline`에 그 URL을 넘긴다. 그
    `_provenance.commit`을 제출에 명시하고, `operability.inert`(비동작 컨트롤과 사유) ·
    `correspondence.new` · `correspondence.dropped`(새로 넣은 · 뺀 컨트롤과 사유) ·
-   `relational.exempted`(관계 기준 8·11·12의 예외와 사유 — owner가 한 줄씩 승인하거나 반려한다)와
+   `relational.exempted`(관계 기준 8·9·11·12의 예외와 사유 — owner가 한 줄씩 승인하거나 반려한다)와
    조작 결과 대응표를 붙인다. [`REFERENCE.md`](REFERENCE.md) 「Operability check」 · 「Correspondence
    check」 · 「Relational acceptance criteria」. 측정 뒤에 파일을 한 줄이라도 쓰면 다시 잰다
 
