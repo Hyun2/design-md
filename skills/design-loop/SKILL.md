@@ -80,14 +80,23 @@ owner에게 확인받는다. 근거를 못 찾은 항목은 빈칸으로 두고 
 
 ## STEP 3 — world 3안 (STOP)
 
-`impeccable`의 new-work 흐름으로 후보를 도출하고 `concept-seed`를 굴린다. 그리고 **세 가지를
-함께** 제출한다. 텍스트 설명만으로 제출하는 것은 실패로 간주한다.
+`impeccable`의 new-work 흐름으로 후보를 도출하고 `concept-seed`를 굴린다. `concept-seed`는
+`impeccable help` 목록에 나오지 않는다 — 존재 근거는 impeccable의 `reference/new-work.md`이고,
+도구가 있는지는 그 도구를 문서화한 파일로 판정한다(2026-09 G1 1라운드는 help 목록만 보고 roll
+없이 만들어졌다). 그리고 **세 가지를 함께** 제출한다. 텍스트 설명만으로 제출하는 것은 실패로
+간주한다.
 
 1. `concept-seed` 출력에 인쇄된 challenger의 **QUALITY BAR board/hero URL을 열어 이미지로**
    제시. 열지 못하면 그 사실을 보고한다. 직접 도출한 후보에는 이 이미지가 없으므로 comp로
    대체한다
 2. 각 안의 **comp** — [`REFERENCE.md`](REFERENCE.md) 「Comp fidelity conditions」의
-   1·2·3·6·7 적용(theme·전 state·전 viewport는 이 단계에서 면제)
+   1·2·3·6·7 적용(theme·전 state·전 viewport는 이 단계에서 면제). **후보는 팔레트가 아니라
+   구성까지 소유한다** — 각 안의 comp는 그 world가 요구하는 content 구성(어느 field를 보이고,
+   무엇을 dominant로 두고, 무엇을 지우는가)을 스스로 갖는다. 한 레이아웃에 토큰만 바꿔 입힌
+   후보들은 owner가 world를 판단할 재료가 되지 못한다: 2026-09 G1 1라운드의 불만은 색이 아니라
+   행마다 찍힌 상태 라벨과 식별할 수 없게 작은 썸네일, 곧 구성이었다. preview는 후보 id로
+   component를 고르고, 출하된 구성을 before 열로 둔다. STEP 5는 선택된 world 안에서 구성을
+   3안으로 넓힌다
 3. 각 안이 STEP 1의 goal을 전달하는 방식을 한 문장으로
 4. **제출 증거** — owner가 여는 URL로 `scripts/measure-surface.mjs`를 돌린 출력(exit 0). 운영
    화면이 있으면 `--baseline`에 그 URL을 넘긴다. 그
@@ -131,7 +140,16 @@ world는 고정하고 layout만 세 가지로 만든다. world와 composition의
    - world(palette·type family·corner·elevation)는 variable이 아니다
 2. variable 승인 후 3안을 만든다. **「Comp fidelity conditions」 10개를 전부** 만족시키고,
    STEP 3의 4번(제출 증거)을 같은 형식으로 붙인다
-3. 각 안에서 **지워도 되는 element를 스스로 지목**한다
+3. 각 안에서 **지워도 되는 element를 스스로 지목**한다 — 테두리·배경을 가진 컨테이너도
+   element다([`REFERENCE.md`](REFERENCE.md) 체크리스트 13)
+
+**두 번 고쳐도 안 맞으면 세 번째 전에 쿼리를 읽는다.** 같은 영역의 배치를 두 번 바꿔도 균형이
+맞지 않으면, 세 번째 배치 전에 그 영역에 데이터를 공급하는 쿼리·API 응답을 읽는다. 디자인이
+요구하는 데이터를 응답이 싣지 않으면 바뀔 것은 응답이다 — "백엔드는 건드리지 않는다" 같은
+제약이 있으면 그 사실을 근거로 owner에게 해제를 요청한다. 2026-09 G1에서 lead card를 세 번
+다시 짰는데, 원인은 목록 RPC가 breakdown 제목을 3개로 자르고 claim bullet을 빼서 두 번째 열에
+채울 내용이 없던 것이었다. SQL의 상한과 `COALESCE`는 레이아웃 세 층 밖에서 내려진 레이아웃
+결정이고 CSS로는 이기지 못한다.
 
 **형태:** 실제 component + preview 라우트로 만든다. world가 하나로 확정된 뒤이므로 채택안이
 곧 production 코드가 되고 탈락안만 버려진다. throwaway HTML로 만들면 구현에서 같은 일을
@@ -287,7 +305,10 @@ gate 이슈에 추가한다.** 이것이 이 loop에서 유일하게 자동화�
     거부한다.
   - `asset` 줄은 `cmd`만 받는다.
   - `caught-by: doc <경로> — <절>` — 사람이 읽고 적용해야 하는 문장. `check` 출력에
-    「document only」로 따로 세어, 문서 반영이 집행으로 보고되지 않게 한다.
+    「document only」로 따로 세어, 문서 반영이 집행으로 보고되지 않게 한다. `protocol` 줄의
+    문서는 다음 프로젝트가 읽는 것이어야 한다 — 스킬 아래이거나 저장소 밖의 전역 에이전트
+    파일. 현재 저장소 안의 문서면 `check`가 거부한다(2026-09 G1 5행이 저장소의
+    learnings 문서를 가리켰다).
   - `ticket: #<n>` — 공정 티켓으로 넘긴 줄. 잡는 장치는 그 티켓의 해결이 정한다.
 - `sync`가 만든 티켓에는 `<!-- ledger-source: <gate> :: <finding> -->` 표시가 박히고,
   `audit`은 그 표시로 **누락을 역방향으로** 찾는다. 즉 두 지도의 연결은 사람의 기억이 아니라
