@@ -62,7 +62,10 @@
  *   green: <commit>                 the commit on which the same command exits 0
  *                                   with the defect fixed — required with `cmd`
  *   caught-by: doc <path> — <sect>  a sentence a reader has to apply; reported
- *                                   as document-only, never as enforced
+ *                                   as document-only, never as enforced. On a
+ *                                   protocol row the file must lie under the
+ *                                   skills or outside this repository — a
+ *                                   project doc is not read by the next project
  *   ticket: #<n>                    carried into a process ticket instead, whose
  *                                   resolution owns the catcher
  * `ticket:` with a commit or prose records only where a change landed. Both
@@ -322,8 +325,23 @@ function catcher(row) {
     return { kind };
   }
   const path = rest.split(/\s+/)[0].replace(/^~\//, `${homedir()}/`);
-  if (![resolve(path), resolve(SKILLS_ROOT, path)].some((p) => existsSync(p))) {
+  const found = [resolve(path), resolve(SKILLS_ROOT, path)].filter((p) => existsSync(p)).map((p) => realpathSync(p));
+  if (found.length === 0) {
     return { kind, problem: `caught-by: doc ${path} — no such file here or under ${SKILLS_ROOT}` };
+  }
+  // A protocol rule is for the next project, which reads the skills and the
+  // global agent file but not this repository. In 2026-09 five G1 rows named
+  // `direction-round-learnings.md` of the project as their catcher.
+  if (row.class === "protocol") {
+    const top = git(process.cwd(), ["rev-parse", "--show-toplevel"]);
+    const repo = top.status === 0 ? realpathSync(top.stdout.trim()) : null;
+    const inherited = found.filter((p) => p.startsWith(`${SKILLS_ROOT}/`) || !repo || !p.startsWith(`${repo}/`));
+    if (inherited.length === 0) {
+      return {
+        kind,
+        problem: `a protocol row's doc must be one the next project reads — ${found[0]} is inside this repository (${repo}); put the rule under ${SKILLS_ROOT} or a global agent file, or carry it as ticket: #<n>`,
+      };
+    }
   }
   return { kind };
 }
