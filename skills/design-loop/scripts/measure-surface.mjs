@@ -399,9 +399,11 @@ const MEASURE = (rootSelector) => `async () => {
   // file is the reference only when nothing is declared. Each picture is
   // scrolled into view first, so a lazy one loads; one with neither a declared
   // ratio nor a loaded file is a failed measurement, not a pass. Last in this
-  // function because it scrolls; the scroll is put back afterwards. Only this
-  // window scrolls: scrollIntoView also scrolls a preview shell around the
-  // frame, and the operability check then clicked into a moved shell.
+  // function because it scrolls. The page may scroll an inner container rather
+  // than the window (TuBrief pins html and body at overflow hidden), so the
+  // picture is brought in with scrollIntoView — which also moves every scroller
+  // above it, a preview shell around the frame included, and the operability
+  // check then clicked into a moved shell. Each of those is put back.
   const ratioOf = (value) => {
     const m = String(value).match(/([\\d.]+)\\s*(?:\\/\\s*([\\d.]+))?\\s*$/);
     if (!m) return null;
@@ -425,8 +427,14 @@ const MEASURE = (rootSelector) => `async () => {
     return false;
   };
   const tagOf = (el) => el.tagName.toLowerCase() + (typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\\s+/).slice(0, 3).join('.') : '');
-  const startX = scrollX;
-  const startY = scrollY;
+  const scrolled = new Map();
+  const rememberScroll = (el) => {
+    try {
+      for (let n = el; n; n = n.parentElement || n.ownerDocument.defaultView.frameElement) {
+        if (!scrolled.has(n)) scrolled.set(n, [n.scrollLeft, n.scrollTop]);
+      }
+    } catch { /* a cross-origin parent is not ours to move */ }
+  };
   // Hit-testing skips pointer-events:none, and a band that ignores the pointer
   // still hides the picture.
   const hitAll = document.createElement('style');
@@ -438,8 +446,8 @@ const MEASURE = (rootSelector) => `async () => {
   for (const img of pictures) {
     const src = img.currentSrc || img.src || '';
     const name = src.startsWith('data:') ? (img.alt || 'inline image') : src.split('/').slice(-2).join('/').slice(0, 48);
-    const at = img.getBoundingClientRect();
-    window.scrollTo({ left: at.left + scrollX + at.width / 2 - innerWidth / 2, top: at.top + scrollY + at.height / 2 - innerHeight / 2, behavior: 'instant' });
+    rememberScroll(img);
+    img.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
     if (!img.complete) {
       await new Promise((done) => {
         img.addEventListener('load', done, { once: true });
@@ -537,7 +545,7 @@ const MEASURE = (rootSelector) => `async () => {
     }
   }
   hitAll.remove();
-  window.scrollTo({ left: startX, top: startY, behavior: 'instant' });
+  for (const [n, [left, top]] of scrolled) { n.scrollLeft = left; n.scrollTop = top; }
 
   for (const part of badExempt) relationalDefects.push('data-comp-exempt "' + part + '" is not "<8|9|11|12>: <reason>"');
 
