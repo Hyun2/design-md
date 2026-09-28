@@ -5,7 +5,7 @@ baseline-content-language row while `check` returned success (process ticket #71
 finding: baseline content language protocol row
 class: project
 where: baseline content language
-
+---
 finding: second finding must remain separate
 class: project
 where: second ledger row
