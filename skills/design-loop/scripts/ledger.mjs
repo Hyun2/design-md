@@ -182,17 +182,29 @@ function parseLedger(text) {
     (match) => match[1],
   );
   const rows = [];
+  const problems = [];
   for (const block of blocks) {
     for (const chunk of block.split(/\n---\n/)) {
-      const row = {};
+      const values = new Map();
       for (const line of chunk.split("\n")) {
-        const match = line.match(/^(finding|class|where|ticket|caught-by|red-line|red|green):\s*(.+)$/);
-        if (match) row[match[1]] = match[2].trim();
+        const match = line.match(/^(finding|class|where|ticket|caught-by|red-line|red|green):\s*(.*)$/);
+        if (match) values.set(match[1], [...(values.get(match[1]) ?? []), match[2].trim()]);
       }
+      const findings = values.get("finding") ?? [];
+      const findingPair = [
+        findings[0] ?? "(missing)",
+        findings[1] ?? findings[0] ?? "(missing)",
+      ];
+      const duplicates = [...values.entries()]
+        .filter(([, entries]) => entries.length > 1)
+        .map(([key]) => key);
+      for (const key of duplicates) problems.push({ key, findings: findingPair });
+      if (duplicates.length) continue;
+      const row = Object.fromEntries([...values].map(([key, entries]) => [key, entries[0]]));
       if (row.finding) rows.push(row);
     }
   }
-  return rows;
+  return { rows, problems };
 }
 
 function isCarried(row) {
@@ -347,9 +359,16 @@ function catcher(row) {
 }
 
 // Shared by check and close: every row classified, every carried row names
-// its catcher. Prints the rows and returns the number of failures.
-function validate(rows) {
+// its catcher, and malformed items are refused. Prints the rows and returns
+// the number of failures.
+function validate(rows, problems = []) {
   let failures = 0;
+  for (const { key, findings } of problems) {
+    failures += 1;
+    console.error(
+      ` - DUPLICATE KEY "${key}" between findings ${JSON.stringify(findings[0])} and ${JSON.stringify(findings[1])} — separate rows with ---`,
+    );
+  }
   for (const row of rows) {
     if (!CLASSES.has(row.class ?? "")) {
       failures += 1;
@@ -403,7 +422,7 @@ function readLedger(issue, extraText = "") {
   // can validate its ledger before posting it.
   const file = flag("file");
   if (file) {
-    return { title: `(file) ${file}`, rows: parseLedger(readFileSync(file, "utf8")) };
+    return { title: `(file) ${file}`, ...parseLedger(readFileSync(file, "utf8")) };
   }
   const payload = snapshot()
     ? { ...snapshotIssue(issue), comments: (snapshotIssue(issue).comments ?? []).map((body) => ({ body })) }
@@ -411,7 +430,7 @@ function readLedger(issue, extraText = "") {
   const text = [payload.body ?? "", ...payload.comments.map((c) => c.body), extraText].join(
     "\n\n",
   );
-  return { title: payload.title, rows: parseLedger(text) };
+  return { title: payload.title, ...parseLedger(text) };
 }
 
 function listTickets(map) {
@@ -491,15 +510,15 @@ if ((command === "close" || command === "sync") && flag("tracker")) {
 }
 
 if (command === "check") {
-  const { rows } = readLedger(target);
+  const { rows, problems } = readLedger(target);
   console.log(`${rows.length} ledger rows on #${target}`);
-  if (rows.length === 0) {
+  if (rows.length === 0 && problems.length === 0) {
     console.error("ledger: no ledger block found — a gate cannot close without one");
     process.exit(1);
   }
-  const failures = validate(rows);
+  const failures = validate(rows, problems);
   if (failures > 0) {
-    console.error(`ledger: ${failures} row(s) unclassified or carried without a catcher — gate stays open`);
+    console.error(`ledger: ${failures} problem(s) — gate stays open`);
     process.exit(1);
   }
   console.log("ledger: every row classified, every carried row names its catcher");
@@ -510,15 +529,15 @@ if (command === "check") {
   if (!map) throw new Error("close needs --map <process-map-issue>");
   if (!commentFile) throw new Error("close needs --comment <file>");
 
-  const { rows, title } = readLedger(target, readFileSync(commentFile, "utf8"));
-  if (rows.length === 0) {
+  const { rows, problems, title } = readLedger(target, readFileSync(commentFile, "utf8"));
+  if (rows.length === 0 && problems.length === 0) {
     console.error("ledger: no ledger block found — gate stays open");
     process.exit(1);
   }
   console.log(`#${target} ${title}`);
-  const failures = validate(rows);
+  const failures = validate(rows, problems);
   if (failures > 0) {
-    console.error(`ledger: ${failures} row(s) unclassified or carried without a catcher — gate stays open`);
+    console.error(`ledger: ${failures} problem(s) — gate stays open`);
     process.exit(1);
   }
   const toCarry = rows.filter((row) => row.class !== "project" && !isCarried(row));

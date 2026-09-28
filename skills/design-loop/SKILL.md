@@ -265,7 +265,9 @@ node <skill>/scripts/ledger.mjs sync  <gate-issue> --map <process-map>
 gate 이슈에 추가한다.** 이것이 이 loop에서 유일하게 자동화할 수 없는 규율이다.
 
 - ledger는 gate 이슈의 코멘트 안 ```` ```ledger ```` 블록이며 `finding` / `class` / `where`
-  세 줄이 한 항목이다. `class`는 `protocol` | `asset` | `project`.
+  세 줄이 한 항목이다. 항목은 빈 줄이 아니라 `---`로 나누며, 한 항목 안에서 `finding` · `class` ·
+  `where` · `ticket` · `caught-by` · `red-line` · `red` · `green`이 중복되면 `check`와 `close`가 거부한다.
+  `class`는 `protocol` | `asset` | `project`.
 - **gate 안에서 이미 반영했다고 적는 줄은 다음 라운드에서 무엇이 잡는지를 적는다.** 위 표의 넷째
   열이 기계가 읽는 `caught-by:`다. `ticket: <commit>`은 변경이 들어간 곳일 뿐 집행의 증거가
   아니다 — G1에서 「chrome이 실제 옵션을 갖춘다」가 `985752e`로 반영됐다고 적혔지만 언어
