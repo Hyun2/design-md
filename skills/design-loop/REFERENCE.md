@@ -105,11 +105,13 @@ concept과 무관하게 **보이는 것을 누른다.** 이어진 라운드에�
 | 선택된 컨트롤 | **selected control**은 다시 눌러도 그대로인 것이 정상이므로, 첫 클릭에 변화가 없으면 frame을 다시 로드해 **같은 그룹의 선택되지 않은 형제**를 먼저 누르고 대상을 다시 판정한다(재시도). 그룹: tab → `tablist`, option → `listbox`, radio → `radiogroup` 또는 같은 `name`, menuitemradio → `menu`/`menubar`/`group`, `aria-current` → 다른 대상을 품은 가장 가까운 조상(3단 이내). 형제가 없으면 dead(`selected, no sibling to leave by`), 형제가 선택을 가져가지 않으면 dead, 형제가 페이지를 떠나면 면제(`sibling navigates away` — nav의 현재 항목). 결과는 전부 `operability.reselected`에 `via`(누른 형제)와 `verdict`(live · dead · exempt)로 실린다. 2026-09 TuBrief Reader 시안의 「요약」 탭이 핸들러가 있는데도 매 실행 dead로 exit 1을 내서, 다른 실패를 exit 코드로 판정할 수 없었다(#51) |
 | 면제 | `data-comp-inert="<사유>"`(요소 또는 조상). 출력의 `operability.inert`가 곧 제출용 비동작 목록이다. 사유가 비면 dead |
 | popup의 world | live인 컨트롤이 연 popup이 surface 루트 **밖**에 있으면, 루트가 `<html>`과 다르게 해석하는 커스텀 프로퍼티 전부를 popup의 **컨테이너**(portal이 붙은 요소)에서 다시 읽어 루트 값과 비교한다. 하나라도 다르면 `operability.unscopedPopups`에 실린다. 토큰 이름은 스타일시트에서 모으므로 프로젝트 어휘를 쓰지 않는다. 컨테이너에서 읽는 이유: popup이 자기 위에서 토큰을 다시 가리키는 것은 정당한 scoped re-point다. 2026-09 TuBrief #39에서 C 열의 정렬 메뉴가 운영 팔레트와 글꼴로 떴다 |
-| 실패 | dead 1개 이상 · pageerror 1건 이상 · `unscopedPopups` 1건 이상 · `_provenance.dirty` 참 → JSON은 끝까지 쓰고 exit 1 |
+| 실패 | dead 1개 이상 · pageerror 1건 이상 · `unscopedPopups` 1건 이상 · `_provenance.dirty` 참(같은 commit의 JSON 측정 출력은 제외) → JSON은 끝까지 쓰고 exit 1 |
 
 **「마지막 쓰기 뒤」는 약속이 아니라 대조 가능한 사실이다.** 출력의 `_provenance`에 측정 시점의
-`commit`과 `dirty`가 실린다. 제출은 그 commit을 명시하고, 제출물의 commit과 측정 commit이 다르면
-측정은 무효다. 포맷터가 측정 뒤에 파일을 쓰면 commit이 바뀌거나 tree가 dirty가 되어 드러난다.
+`commit`과 `dirty`, 그리고 제외한 경로의 `ignored`가 실린다. 현재 commit을 `_provenance.commit`에
+기록한 JSON 측정 출력은 dirty로 세지 않고 경로를 `_provenance.ignored`에 남긴다. 제출은 그 commit을
+명시하고, 제출물의 commit과 측정 commit이 다르면 측정은 무효다. 포맷터가 측정 뒤에 파일을 쓰면
+commit이 바뀌거나 tree가 dirty가 되어 드러난다.
 
 **기계가 못 보는 절반.** 이 검사는 「죽었다」만 잡는다. 「엉뚱하게 동작한다」는 제출에 **조작 결과
 대응표**를 붙여 owner가 본다 — 컨트롤마다 1번째/2번째 조작의 결과와, 운영 화면에서 같은 조작의
