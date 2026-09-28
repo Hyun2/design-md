@@ -1057,15 +1057,44 @@ async function baselineInventory(browser, url, width, heightPx) {
   return baselineCache.get(key);
 }
 
-// "After the last write" as a fact, not a promise: the submission must name
-// this commit, and a dirty tree means the surface measured is not one that
-// can be named.
+// The measured surface is named by its commit. JSON outputs already carrying
+// that commit are measurements of the same tree, not source changes.
 function provenance() {
   const git = (...args) => execFileSync("git", args, { encoding: "utf8" }).trim();
   try {
-    return { commit: git("rev-parse", "HEAD"), dirty: git("status", "--porcelain") !== "" };
+    const commit = git("rev-parse", "HEAD");
+    const root = git("rev-parse", "--show-toplevel");
+    const status = execFileSync(
+      "git",
+      ["-C", root, "status", "--porcelain=v1", "--untracked-files=all", "-z"],
+      { encoding: "utf8" },
+    );
+    const records = status.split("\0");
+    const paths = [];
+    for (let i = 0; i < records.length; i += 1) {
+      const record = records[i];
+      if (!record) continue;
+      const state = record.slice(0, 2);
+      paths.push(record.slice(3));
+      if (state.includes("R") || state.includes("C")) paths.push(records[++i]);
+    }
+    const ignored = [];
+    const dirtyPaths = [];
+    for (const file of paths) {
+      let output;
+      if (path.extname(file) === ".json") {
+        try {
+          output = JSON.parse(readFileSync(path.resolve(root, file), "utf8"));
+        } catch {
+          output = null;
+        }
+      }
+      if (output?._provenance?.commit === commit) ignored.push(file);
+      else dirtyPaths.push(file);
+    }
+    return { commit, dirty: dirtyPaths.length > 0, ignored };
   } catch {
-    return { commit: null, dirty: null };
+    return { commit: null, dirty: null, ignored: [] };
   }
 }
 
