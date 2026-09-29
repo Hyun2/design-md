@@ -1,5 +1,5 @@
 /**
- * The substrate detector: the five defect lists of `design-substrate` STEP 1,
+ * The substrate detector: the six defect lists of `design-substrate` STEP 1,
  * found by machine so STEP 7 can keep finding them.
  *
  *   node ~/.agents/skills/design-substrate/scripts/detect.mjs --config <file>            # summary + exit code
@@ -17,6 +17,8 @@
  * 3. split-brain  — two token vocabularies deciding the same attribute
  * 4. drift        — the authority document's policy against the primitives' values
  * 5. dangling     — a utility or `var()` that names a token nothing declares
+ * 6. library-default — a utility in a world-owned namespace that resolves to
+ *                   a value only the library's own sheet declares
  *
  * Scope is every file that renders, dev-only preview code included: a comp
  * preview was once left out, and a token the substrate pass deleted went on
@@ -212,23 +214,50 @@ async function main() {
    * compile whatever `--x` is, so the question moves to whether anything
    * declares it — the project, the library's sheets, or a runtime writer. */
   const declaredVars = new Set();
-  const collectDeclarations = (text) => {
-    for (const m of text.matchAll(/(?:^|[\s{;"'`,(])(--[a-zA-Z0-9_-]+)\s*["'`]?\s*:/g)) declaredVars.add(m[1]);
-    for (const m of text.matchAll(/setProperty\(\s*["'`](--[\w-]+)/g)) declaredVars.add(m[1]);
+  const libraryVars = new Set();
+  const collectDeclarations = (text, into) => {
+    for (const m of text.matchAll(/(?:^|[\s{;"'`,(])(--[a-zA-Z0-9_-]+)\s*["'`]?\s*:/g)) into.add(m[1]);
+    for (const m of text.matchAll(/setProperty\(\s*["'`](--[\w-]+)/g)) into.add(m[1]);
   };
-  for (const sheet of [...adapter.LIBRARY_SHEETS, ...declarationSheets]) {
-    collectDeclarations(await readFile(path.join("node_modules", sheet), "utf8"));
+  for (const sheet of adapter.LIBRARY_SHEETS) {
+    collectDeclarations(await readFile(path.join("node_modules", sheet), "utf8"), libraryVars);
   }
-  for (const file of renderedFiles) collectDeclarations(renderedText[file]);
+  for (const sheet of declarationSheets) {
+    collectDeclarations(await readFile(path.join("node_modules", sheet), "utf8"), declaredVars);
+  }
+  for (const file of renderedFiles) collectDeclarations(renderedText[file], declaredVars);
   for (const file of renderedFiles) {
     const text = stripComments(renderedText[file]);
     for (const m of text.matchAll(/(?:var\(\s*|-\()(--[a-zA-Z0-9_-]+)/g)) {
       const name = m[1];
-      if (declaredVars.has(name) || RUNTIME_OWNED.has(name) || name.startsWith("--tw-")) continue;
+      if (declaredVars.has(name) || libraryVars.has(name) || RUNTIME_OWNED.has(name) || name.startsWith("--tw-")) continue;
       const line = text.slice(0, m.index).split("\n").length;
       findings.push({ kind: "dangling", where: `${file}:${line}`, what: `${name} — 선언하는 곳이 없다` });
     }
   }
+
+  /* 6. library-default references. The utility compiles, so list 5 passes it,
+   * but the value it reads is one only the library's sheet declares: the
+   * element paints the library's default, not the world's. Asked of the CSS
+   * the library generates, so a spelling the world re-declares passes. */
+  utilities.forEach((utility, i) => {
+    const cssText = generated[i];
+    if (!cssText) return;
+    const foreign = [...new Set([...cssText.matchAll(/var\((--[\w-]+)/g)].map((m) => m[1]))].filter(
+      (name) =>
+        adapter.WORLD_OWNED_NAMESPACES.includes(adapter.namespaceOf(name)) &&
+        libraryVars.has(name) &&
+        !declaredVars.has(name),
+    );
+    if (!foreign.length) return;
+    for (const where of utilityHits.get(utility) ?? []) {
+      findings.push({
+        kind: "library-default",
+        where,
+        what: `${utility} — ${foreign.join(", ")}를 라이브러리 시트만 선언한다 (world가 선언하지 않은 값)`,
+      });
+    }
+  });
 
   if (census) {
     for (const [token, read] of Object.entries(fate)) console.log(`${read.padEnd(8)} ${token}`);

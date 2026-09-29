@@ -41,6 +41,30 @@ export const ENGINE_OWNED = new Set(["--spacing", "--radius", "--font-sans"]);
 export const LIBRARY_SHEETS = ["tailwindcss/theme.css"];
 
 /**
+ * Library-default references (STEP 1 list 6): the theme namespaces in which a
+ * utility must resolve to a value the world declares. `font-mono` compiles —
+ * `tailwindcss/theme.css` declares `--font-mono` — so the dangling check passes
+ * it, and the text falls to the operating system's monospace stack. A
+ * namespace joins this list when a defect in it is observed; spacing and the
+ * type scale are read from the library on purpose (2026-09 TuBrief: 1,709 and
+ * 315 sites).
+ */
+export const WORLD_OWNED_NAMESPACES = ["font"];
+
+/* Tailwind v4 theme namespaces, longest first so `--font-weight-bold` is not
+ * read as the `font` (family) namespace. */
+const THEME_NAMESPACES = [
+  "font-weight", "inset-shadow", "drop-shadow", "text-shadow",
+  "breakpoint", "container", "perspective", "tracking", "leading", "default",
+  "spacing", "animate", "radius", "shadow", "aspect", "color", "blur", "ease", "text", "font",
+].sort((a, b) => b.length - a.length);
+
+/** The theme namespace a custom property belongs to, or null. */
+export function namespaceOf(variable) {
+  return THEME_NAMESPACES.find((ns) => variable === `--${ns}` || variable.startsWith(`--${ns}-`)) ?? null;
+}
+
+/**
  * Question 2 (value path). `@theme inline` re-declares raw variables as
  * `--color-*` / `--radius-*` aliases; that block is the alias layer, and the
  * dead-token check is two-pass because of it.
@@ -129,7 +153,8 @@ export function classStrings(file, text) {
  * the class just compiles to nothing. The design system is loaded from the
  * same stylesheet the build reads, so plugins and imported sheets count.
  *
- * Returns a function `(utilities) => boolean[]`, true where CSS is generated.
+ * Returns a function `(utilities) => (string | null)[]`: the CSS each utility
+ * generates, null where it generates none.
  */
 export async function compiler(css, { stylesheetBase }) {
   const root = process.cwd();
@@ -157,7 +182,7 @@ export async function compiler(css, { stylesheetBase }) {
       return { path: file, base, module: req(file) };
     },
   });
-  return (utilities) => designSystem.candidatesToCss(utilities).map(Boolean);
+  return (utilities) => designSystem.candidatesToCss(utilities);
 }
 
 /**
