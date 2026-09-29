@@ -129,7 +129,12 @@ const devices = arg("devices", "390x844,768x1024,1440x900,1920x1080").split(",")
 const rootSelector = arg("root", "");
 const outFile = arg("out", "measure.json");
 const baselines = arg("baseline", "").split(",").filter(Boolean);
+const shippedWorld = process.argv.includes("--shipped-world");
 
+if (shippedWorld && baselines.length === 0) {
+  console.error("measure-surface: --shipped-world requires --baseline");
+  process.exit(1);
+}
 if (urls.length === 0) {
   console.error("measure-surface: --urls is required");
   process.exit(1);
@@ -832,6 +837,22 @@ const POPUP_SCOPE = (rootSelector) => `() => {
   }
   return out;
 }`;
+const TOKEN_VALUES = (rootSelector, body = false) => `() => {
+  const ROOT_SELECTOR = ${JSON.stringify(rootSelector)};
+  const root = ${body ? "document.body" : "(ROOT_SELECTOR && document.querySelector(ROOT_SELECTOR)) || document.querySelector('[data-comp-world]') || document.body"};
+  const names = new Set();
+  const walk = (rules) => {
+    for (const rule of rules) {
+      if (rule.style) for (const prop of rule.style) if (prop.startsWith('--')) names.add(prop);
+      if (rule.cssRules) walk(rule.cssRules);
+    }
+  };
+  for (const sheet of document.styleSheets) {
+    try { walk(sheet.cssRules); } catch { /* a cross-origin sheet declares no tokens of ours */ }
+  }
+  const style = getComputedStyle(root);
+  return [...names].map((name) => ({ name, value: style.getPropertyValue(name).trim() }));
+}`;
 
 // `collect` gathers the control inventory: what is on the surface at rest,
 // plus what each live control opens in a popup, read before the reload that
@@ -1039,22 +1060,35 @@ function correspond(comp, base) {
 // its inventory is wanted: links leave the page and list members repeat one
 // another, so neither is operated.
 const baselineCache = new Map();
-async function baselineInventory(browser, url, width, heightPx) {
+async function baselinePage(browser, url, width, heightPx) {
   const key = `${url}@${width}x${heightPx}`;
   if (!baselineCache.has(key)) {
     const page = await browser.newPage({ viewport: { width, height: heightPx } });
     await page.goto(url, { waitUntil: "networkidle" });
-    const rest = await page.evaluate(`(${INVENTORY})()`);
+    baselineCache.set(key, { page, inventory: null, tokens: null });
+  }
+  return baselineCache.get(key);
+}
+
+async function baselineInventory(browser, url, width, heightPx) {
+  const entry = await baselinePage(browser, url, width, heightPx);
+  if (!entry.inventory) {
+    const rest = await entry.page.evaluate(`(${INVENTORY})()`);
     const counts = new Map();
     for (const c of rest.controls) counts.set(c.path, (counts.get(c.path) ?? 0) + 1);
-    const report = await checkOperability(page, null, {
+    const report = await checkOperability(entry.page, null, {
       collect: true,
       skip: (c) => !c || counts.get(c.path) >= 5 || /(^|>)a$/.test(c.path),
     });
-    await page.close();
-    baselineCache.set(key, report.inventory);
+    entry.inventory = report.inventory;
   }
-  return baselineCache.get(key);
+  return entry.inventory;
+}
+
+async function baselineTokens(browser, url, width, heightPx) {
+  const entry = await baselinePage(browser, url, width, heightPx);
+  if (!entry.tokens) entry.tokens = await entry.page.evaluate(TOKEN_VALUES("", true));
+  return entry.tokens;
 }
 
 // The measured surface is named by its commit. JSON outputs already carrying
@@ -1147,12 +1181,39 @@ async function main() {
         result.operability = await checkOperability(page, iframe, { collect: true, scope: rootSelector });
         const { inventory } = result.operability;
         delete result.operability.inventory;
+        result.tokens = null;
         if (baselines[index]) {
           const [w, h] = await frame.evaluate(() => [innerWidth, innerHeight]);
           const base = await baselineInventory(browser, baselines[index], w, h);
           result.correspondence = { baseline: baselines[index], ...correspond(inventory, base) };
           for (const u of result.correspondence.unpaired) failed.push(`${key}: unpaired control ${u.control} (${u.reason})`);
           for (const m of result.correspondence.missing) failed.push(`${key}: missing control ${m.control} (${m.reason})`);
+          if (shippedWorld) {
+            const [compTokens, operatingTokens] = await Promise.all([
+              frame.evaluate(TOKEN_VALUES(rootSelector)),
+              baselineTokens(browser, baselines[index], w, h),
+            ]);
+            const comp = new Map(compTokens.map(({ name, value }) => [name, value]));
+            const operating = new Map(operatingTokens.map(({ name, value }) => [name, value]));
+            const names = new Set([...comp.keys(), ...operating.keys()]);
+            const drift = [];
+            let compared = 0;
+            for (const name of names) {
+              const baseline = operating.get(name) ?? "";
+              if (!baseline) continue;
+              compared += 1;
+              const value = comp.get(name) ?? "";
+              if (value !== baseline) drift.push({ name, comp: value, baseline });
+            }
+            result.tokens = { baseline: baselines[index], compared, drift };
+            if (drift.length) {
+              const cut = (value) => value.replace(/\s+/g, " ").slice(0, 80);
+              const samples = drift.slice(0, 3).map(({ name, comp: value, baseline }) =>
+                `token ${name} differs from the operating screen (comp ${cut(value)} → operating ${cut(baseline)})`);
+              const more = drift.length > samples.length ? `; and ${drift.length - samples.length} more` : "";
+              failed.push(`${key}: ${drift.length} operating-screen token${drift.length === 1 ? "" : "s"} differ${drift.length === 1 ? "s" : ""}: ${samples.join("; ")}${more}`);
+            }
+          }
         } else {
           result.correspondence = { baseline: null, note: "not checked: pass --baseline to pair the comp's controls and labels with the operating screen" };
         }
