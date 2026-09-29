@@ -185,20 +185,32 @@ async function perChar(page, cdp, rootId, idx) {
 
 /* Read every text-bearing element not yet read in an earlier state. The key
  * carries the computed family, so a state that re-renders the same text in
- * another face is read again. */
-async function measureState(page, cdp, nodes, state, tally) {
-  const records = await page.evaluate(markTextNodes, allowedSelector);
-  tally.textElements += records.length;
-  const { root } = await cdp.send("DOM.getDocument", { depth: -1 });
-  const byIdx = await nodeIdsBy(cdp, root.nodeId, "[data-fa]", "data-fa");
-  for (const r of records) {
-    const key = `${r.path}::${r.text}::${r.fontFamily}`;
-    if (nodes.has(key)) continue;
-    const { fonts: faces } = await cdp.send("CSS.getPlatformFontsForNode", { nodeId: byIdx[r.i] });
-    const record = { ...r, state, faces };
-    if (faces.length === 0) tally.unread.push(`${state} ${r.path} "${r.text.slice(0, 40)}"`);
-    if (faces.some((f) => !f.isCustomFont)) record.chars = await perChar(page, cdp, root.nodeId, r.i);
-    nodes.set(key, record);
+ * another face is read again. A page still rendering (a player mounting, a
+ * list streaming in) can drop a marked node between the mark and the read;
+ * the state is read again after it settles, and a third miss is unread. */
+async function measureState(page, cdp, nodes, state, tally, attempt = 0) {
+  try {
+    const records = await page.evaluate(markTextNodes, allowedSelector);
+    if (attempt === 0) tally.textElements += records.length;
+    const { root } = await cdp.send("DOM.getDocument", { depth: -1 });
+    const byIdx = await nodeIdsBy(cdp, root.nodeId, "[data-fa]", "data-fa");
+    for (const r of records) {
+      const key = `${r.path}::${r.text}::${r.fontFamily}`;
+      if (nodes.has(key)) continue;
+      if (byIdx[r.i] === undefined) throw new Error(`node left the document: ${r.path}`);
+      const { fonts: faces } = await cdp.send("CSS.getPlatformFontsForNode", { nodeId: byIdx[r.i] });
+      const record = { ...r, state, faces };
+      if (faces.length === 0) tally.unread.push(`${state} ${r.path} "${r.text.slice(0, 40)}"`);
+      if (faces.some((f) => !f.isCustomFont)) record.chars = await perChar(page, cdp, root.nodeId, r.i);
+      nodes.set(key, record);
+    }
+  } catch (error) {
+    if (attempt >= 2) {
+      tally.unread.push(`${state} ${error.message.split("\n")[0]}`);
+      return;
+    }
+    await settle(page);
+    await measureState(page, cdp, nodes, state, tally, attempt + 1);
   }
 }
 
