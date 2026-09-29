@@ -18,18 +18,17 @@
  * composited over an unexpected ground, a face that silently fell back, a token
  * overridden downstream.
  *
- * Criteria 1-7 are the element criteria in REFERENCE.md; 8-12 are the
- * relational ones, and every one of 8-12 fails the run: controls on one line
- * of different heights (or no visible marked control at all), a picture of
- * which under 95% is on screen (or one that cannot be read), a painted box
- * set beside another with an empty band of 4rem and 15% of its height, a
- * display heading that wraps into lines under 70% of its column, a sentence
- * of 24+ characters printed twice.
- * `data-comp-exempt="<criterion>: <reason>"` takes an element
- * out of that judgement and into `relational.exempted`, which the submission
- * shows the owner. Only 8 needs a
- * markup contract: `data-comp-control="<name>"` on each control that shares a
- * line. The accent region needs one too:
+ * Criteria 1-7 are the element criteria in REFERENCE.md; 8-12 and 14 are the
+ * relational ones, and each fails the run: controls on one line of different
+ * heights or kinds with identical looks (or no visible marked control at all),
+ * a picture of which under 95% is on screen (or one that cannot be read), a
+ * painted box set beside another with an empty band of 4rem and 15% of its
+ * height, a display heading that wraps into lines under 70% of its column, a
+ * sentence of 24+ characters printed twice.
+ * `data-comp-exempt="<criterion>: <reason>"` takes an element out of that
+ * judgement and into `relational.exempted`, which the submission shows the
+ * owner. Only 8 needs a markup contract: `data-comp-control="<name>"` on each
+ * control that shares a line. The accent region needs one too:
  * `data-comp-accent="1"` on every element that owns the accent fill. The
  * accent colour is read off those owners, never off a token name, and a
  * surface with no visible owner, an owner that paints nothing, or owners that
@@ -268,7 +267,7 @@ const MEASURE = (rootSelector) => `async () => {
   for (const role of ['sans', 'catalogue', 'notation']) {
     faces[role] = getComputedStyle(root).getPropertyValue('--font-' + role).trim().split(',')[0];
   }
-  // Declared exceptions to the gated relational criteria (8-12):
+  // Declared exceptions to the gated relational criteria (8-12, 14):
   // \`data-comp-exempt="<criterion>: <reason>"\` on the element or an ancestor,
   // several joined by \`;\`. An exempt element leaves the judgement and lands in
   // \`exempted\` with its reason, which the submission puts before the owner —
@@ -282,7 +281,7 @@ const MEASURE = (rootSelector) => `async () => {
     const reasons = new Map();
     for (const part of a.getAttribute('data-comp-exempt').split(';')) {
       const m = part.match(/^\\s*(\\d+)\\s*:\\s*(\\S.*)$/);
-      if (m && [8, 9, 10, 11, 12].includes(Number(m[1]))) reasons.set(Number(m[1]), m[2].trim());
+      if (m && [8, 9, 10, 11, 12, 14].includes(Number(m[1]))) reasons.set(Number(m[1]), m[2].trim());
       else badExempt.push(part.trim());
     }
     declared.set(a, reasons);
@@ -619,7 +618,7 @@ const MEASURE = (rootSelector) => `async () => {
   hitAll.remove();
   for (const [n, [left, top]] of scrolled) { n.scrollLeft = left; n.scrollTop = top; }
 
-  for (const part of badExempt) relationalDefects.push('data-comp-exempt "' + part + '" is not "<8|9|10|11|12>: <reason>"');
+  for (const part of badExempt) relationalDefects.push('data-comp-exempt "' + part + '" is not "<8|9|10|11|12|14>: <reason>"');
 
   return {
     dominant: {
@@ -654,10 +653,11 @@ const MEASURE = (rootSelector) => `async () => {
     // Gated relational criteria and what failed them; declared exceptions
     // with their reasons; pictures that could not be read.
     relational: {
-      gated: [8, 9, 10, 11, 12],
+      gated: [8, 9, 10, 11, 12, 14],
       defects: relationalDefects,
       exempted,
       mediaUnread,
+      kindMix: null,
     },
     // Values the kernel could not read. Any at all makes this row a failed
     // measurement: the numbers above were taken with pieces missing.
@@ -792,11 +792,36 @@ const INVENTORY = `() => {
 }`;
 
 const ARM = `() => {
+  window.__opObserver?.disconnect();
+  if (window.__opScrollListener) removeEventListener('scroll', window.__opScrollListener, true);
   window.__opChanges = 0;
+  window.__opScrolled = false;
   window.__opUrl = location.href;
-  new MutationObserver((records) => { window.__opChanges += records.length; })
-    .observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
-  addEventListener('scroll', () => { window.__opChanges += 1; }, true);
+  const POPUP = '[role=dialog],[role=alertdialog],[role=listbox],[role=menu],[popover],[aria-modal=true]';
+  const visible = ${VISIBLE};
+  window.__opPopups = new WeakSet([...document.querySelectorAll(POPUP)].filter(visible));
+  window.__opObserver = new MutationObserver((records) => { window.__opChanges += records.length; });
+  window.__opObserver.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+  window.__opScrollListener = () => { window.__opScrolled = true; window.__opChanges += 1; };
+  addEventListener('scroll', window.__opScrollListener, true);
+}`;
+
+const OPERATION_STATE = `() => {
+  const before = new URL(window.__opUrl);
+  const POPUP = '[role=dialog],[role=alertdialog],[role=listbox],[role=menu],[popover],[aria-modal=true]';
+  const visible = ${VISIBLE};
+  const opened = [...document.querySelectorAll(POPUP)].some((el) => visible(el) && !window.__opPopups?.has(el));
+  const pathChanged = location.pathname !== before.pathname;
+  const queryChanged = location.search !== before.search;
+  const hashOnly = !pathChanged && !queryChanged && location.hash !== before.hash;
+  const changed = window.__opChanges === undefined || window.__opChanges > 0 || location.href !== before.href;
+  const kind = pathChanged ? 'leave'
+    : queryChanged ? 'setting'
+    : window.__opScrolled || hashOnly ? 'in-page'
+    : opened ? 'opens'
+    : changed ? 'setting'
+    : null;
+  return { changed, kind };
 }`;
 
 // Does a popup wear the surface's world? A select, menu or popover portals to
@@ -853,11 +878,149 @@ const TOKEN_VALUES = (rootSelector, body = false) => `() => {
   const style = getComputedStyle(root);
   return [...names].map((name) => ({ name, value: style.getPropertyValue(name).trim() }));
 }`;
+const KIND_LAYOUT = (rootSelector) => `(elements) => {
+  const ROOT_SELECTOR = ${JSON.stringify(rootSelector)};
+  const k = globalThis.__colorKernel;
+  if (!k || !k.ready) {
+    return {
+      controls: elements.map(() => null),
+      colorRead: k?.stats?.() ?? { attempted: 0, unread: 0, unreadSamples: [] },
+      measurementFailed: 'colour kernel: ' + (k ? k.error : 'not installed'),
+    };
+  }
+  k.reset();
+  const root = (ROOT_SELECTOR && document.querySelector(ROOT_SELECTOR)) || document.querySelector('[data-comp-world]') || document.body;
+  const reasonFor = (el) => {
+    for (let node = el; node; node = node.parentElement) {
+      for (const part of (node.getAttribute('data-comp-exempt') || '').split(';')) {
+        const match = part.match(/^\\s*14\\s*:\\s*(\\S.*)$/);
+        if (match) return match[1].trim();
+      }
+      if (node === root) break;
+    }
+    return null;
+  };
+  const colour = (value) => {
+    const parsed = k.parse(value);
+    return parsed ? [...parsed.slice(0, 3).map(Math.round), Number(parsed[3].toFixed(3))] : null;
+  };
+  const signatureOf = (el) => {
+    const style = getComputedStyle(el);
+    const border = ['Top', 'Right', 'Bottom', 'Left'].map((side) => {
+      const width = parseFloat(style['border' + side + 'Width']) || 0;
+      return width > 0 ? { width, colour: colour(style['border' + side + 'Color']) } : null;
+    });
+    return {
+      height: Math.round(el.getBoundingClientRect().height),
+      border,
+      background: k.groundOf(el).map(Math.round),
+      radius: style.borderRadius,
+      weight: style.fontWeight,
+      size: style.fontSize,
+    };
+  };
+  const pathOf = (el) => {
+    const parts = [];
+    for (let node = el; node; node = node.parentElement) {
+      let part = node.tagName.toLowerCase();
+      if (node.id) part += '#' + node.id;
+      else {
+        let position = 1;
+        for (let prev = node.previousElementSibling; prev; prev = prev.previousElementSibling) {
+          if (prev.tagName === node.tagName) position += 1;
+        }
+        part += ':nth-of-type(' + position + ')';
+      }
+      parts.unshift(part);
+      if (node === root) break;
+    }
+    return parts.join(' > ');
+  };
+  const displayGroup = (el) => {
+    for (let node = el.parentElement; node; node = node.parentElement) {
+      const display = getComputedStyle(node).display;
+      if (['flex', 'inline-flex', 'grid', 'inline-grid'].includes(display)) return node;
+      if (node === root) break;
+    }
+    return null;
+  };
+  const controls = elements.map((el) => {
+    if (!el || !root.contains(el)) return null;
+    const ancestor = displayGroup(el);
+    if (!ancestor) return { group: null };
+    const rect = el.getBoundingClientRect();
+    return {
+      group: pathOf(ancestor),
+      top: rect.top,
+      bottom: rect.bottom,
+      signature: signatureOf(el),
+      reason: reasonFor(el),
+    };
+  });
+  return { controls, colorRead: k.stats() };
+}`;
+
+function kindMix(operated, layout) {
+  const exempted = [];
+  const groupsByAncestor = new Map();
+  for (const item of operated) {
+    const descriptor = layout.controls[item.index];
+    if (!descriptor?.group) continue;
+    if (descriptor.reason) {
+      exempted.push({ criterion: 14, what: 'control ' + item.name, reason: descriptor.reason });
+      continue;
+    }
+    const controls = groupsByAncestor.get(descriptor.group) ?? [];
+    controls.push({ ...descriptor, name: item.name, kind: item.kind });
+    groupsByAncestor.set(descriptor.group, controls);
+  }
+  const groups = [];
+  const defects = [];
+  const summaryOf = (signature) => {
+    const border = signature.border.map((edge) => edge
+      ? edge.width + 'px ' + (edge.colour ? 'rgba(' + edge.colour.join(', ') + ')' : 'unread')
+      : 'none').join('/');
+    return 'height ' + signature.height + 'px, border ' + border +
+      ', background rgb(' + signature.background.join(', ') + ')' +
+      ', radius ' + signature.radius + ', weight ' + signature.weight + ', size ' + signature.size;
+  };
+  for (const [ancestor, controls] of groupsByAncestor) {
+    const rows = [];
+    for (const control of controls.sort((a, b) => a.top - b.top)) {
+      const row = rows.find((members) => members.some((other) => control.top < other.bottom && other.top < control.bottom));
+      if (row) row.push(control);
+      else rows.push([control]);
+    }
+    for (const row of rows) {
+      if (new Set(row.map(({ kind }) => kind)).size < 2) continue;
+      groups.push({
+        ancestor,
+        controls: row.map(({ name, kind, signature }) => ({ name, kind, signature })),
+      });
+      for (let i = 0; i < row.length; i += 1) {
+        for (let j = i + 1; j < row.length; j += 1) {
+          const a = row[i];
+          const b = row[j];
+          if (a.kind === b.kind || JSON.stringify(a.signature) !== JSON.stringify(b.signature)) continue;
+          defects.push({
+            kindA: a.kind,
+            labelA: a.name,
+            kindB: b.kind,
+            labelB: b.name,
+            signature: a.signature,
+            summary: summaryOf(a.signature),
+          });
+        }
+      }
+    }
+  }
+  return { groups, defects, exempted, colorRead: layout.colorRead, measurementFailed: layout.measurementFailed };
+}
 
 // `collect` gathers the control inventory: what is on the surface at rest,
 // plus what each live control opens in a popup, read before the reload that
 // would close it. `skip` spares controls that cannot open a popup.
-async function checkOperability(page, iframe, { collect = false, skip = () => false, scope = null } = {}) {
+async function checkOperability(page, iframe, { collect = false, skip = () => false, scope = null, kindRoot = null } = {}) {
   let frame = iframe ? await iframe.contentFrame() : page.mainFrame();
   const home = frame.url();
   // A link can leave for a page that refuses to be framed; Chromium then swaps
@@ -876,8 +1039,21 @@ async function checkOperability(page, iframe, { collect = false, skip = () => fa
     frame = next;
     await frame.waitForLoadState("networkidle");
   };
-  const targets = await frame.evaluate(`(${TARGETS})()`);
-  const report = { checked: 0, live: [], dead: [], inert: [], errors: [], reselected: [], unscopedPopups: [] };
+  let targets;
+  let kindLayout = null;
+  if (kindRoot !== null) {
+    const captured = await frame.evaluate(`(() => {
+      const targets = (${TARGETS})();
+      const elements = (${TARGETS})(true);
+      const layout = (${KIND_LAYOUT(kindRoot)})(elements);
+      return { targets, layout };
+    })()`);
+    targets = captured.targets;
+    kindLayout = captured.layout;
+  } else {
+    targets = await frame.evaluate(`(${TARGETS})()`);
+  }
+  const report = { checked: 0, live: [], kinds: [], dead: [], inert: [], errors: [], reselected: [], unscopedPopups: [] };
   // A selected target that did not answer is pressed again from outside its
   // state: reload, press its sibling, then press it. true when it answered,
   // "exempt" when the sibling left the page, otherwise the reason it is dead.
@@ -899,9 +1075,13 @@ async function checkOperability(page, iframe, { collect = false, skip = () => fa
       // left without leaving the target: the current item of a nav.
       return { via, verdict: "exempt", reason: "sibling navigates away" };
     }
-    if (still) return { via, verdict: `selected, and pressing ${via} did not take the selection (${left === true ? "it responded" : left})` };
-    const verdict = await operate(frame, handle, target);
-    return { via, verdict: verdict === NO_CHANGE ? `${NO_CHANGE}, even after leaving by ${via}` : verdict };
+    if (still) return { via, verdict: `selected, and pressing ${via} did not take the selection (${left.verdict === true ? "it responded" : left.verdict})` };
+    const operated = await operate(frame, handle, target);
+    return {
+      via,
+      verdict: operated.verdict === NO_CHANGE ? `${NO_CHANGE}, even after leaving by ${via}` : operated.verdict,
+      kind: operated.kind,
+    };
   };
   const inventory = collect ? await frame.evaluate(`(${INVENTORY})()`) : null;
   for (const [index, target] of targets.entries()) {
@@ -914,8 +1094,8 @@ async function checkOperability(page, iframe, { collect = false, skip = () => fa
     report.checked += 1;
     try {
       const handle = (await frame.evaluateHandle(TARGET_AT(index))).asElement();
-      let verdict = handle ? await operate(frame, handle, target) : "target list shifted";
-      if (verdict === NO_CHANGE && target.selected) {
+      let operated = handle ? await operate(frame, handle, target) : { verdict: "target list shifted", kind: null };
+      if (operated.verdict === NO_CHANGE && target.selected) {
         const again = await reselect(index, target);
         report.reselected.push({ name: target.name, via: again.via ?? null,
           verdict: again.verdict === true ? "live" : again.verdict === "exempt" ? "exempt" : "dead",
@@ -923,10 +1103,11 @@ async function checkOperability(page, iframe, { collect = false, skip = () => fa
         // A dead or exempt verdict leaves the sibling's state behind.
         if (again.verdict !== true) await reload();
         if (again.verdict === "exempt") continue;
-        verdict = again.verdict;
+        operated = { verdict: again.verdict, kind: again.kind ?? null };
       }
-      if (verdict === true) {
+      if (operated.verdict === true) {
         report.live.push(target.name);
+        if (operated.kind) report.kinds.push({ index, name: target.name, kind: operated.kind });
         if (collect || scope !== null) {
           try {
             if (collect) {
@@ -945,7 +1126,7 @@ async function checkOperability(page, iframe, { collect = false, skip = () => fa
         // A popup or filter left open would decide the next target's verdict.
         await reload();
       } else {
-        report.dead.push({ name: target.name, reason: verdict });
+        report.dead.push({ name: target.name, reason: operated.verdict });
       }
     } catch (error) {
       // The check itself broke, which says nothing about the control.
@@ -954,6 +1135,7 @@ async function checkOperability(page, iframe, { collect = false, skip = () => fa
     }
   }
   if (collect) report.inventory = inventory;
+  if (kindLayout) report.kindMix = kindMix(report.kinds, kindLayout);
   return report;
 }
 
@@ -966,6 +1148,7 @@ async function operate(frame, handle, target) {
   // mistaken for the control's response.
   await handle.evaluate((el) => el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" }));
   await frame.waitForTimeout(100);
+  const startUrl = frame.url();
   await frame.evaluate(`(${ARM})()`);
   try {
     if (target.text) await handle.type("a", { timeout: 2000 });
@@ -974,19 +1157,28 @@ async function operate(frame, handle, target) {
     // Playwright puts the cause (covered, off-screen, unstable) in its call log.
     const lines = String(error.message).split("\n");
     const cause = lines.findLast((line) => /intercepts pointer|outside of the viewport|not visible|not stable|detached/.test(line));
-    return `cannot act: ${lines[0]}${cause ? ` — ${cause.trim()}` : ""}`;
+    return { verdict: `cannot act: ${lines[0]}${cause ? ` — ${cause.trim()}` : ""}`, kind: null };
   }
   // A typed character changes `value` with or without a handler, so text
   // inputs are judged only by what the surface does in response.
-  await frame.waitForTimeout(target.text ? 1500 : 600);
   try {
-    const changed = await frame.evaluate(
-      "window.__opChanges === undefined || window.__opChanges > 0 || location.href !== window.__opUrl",
-    );
-    return changed || NO_CHANGE;
+    await frame.waitForTimeout(target.text ? 1500 : 600);
+    const state = await frame.evaluate(`(${OPERATION_STATE})()`);
+    return { verdict: state.changed ? true : NO_CHANGE, kind: state.kind };
   } catch {
-    // The execution context or the frame went away: the control navigated.
-    return true;
+    // The execution context or the frame went away; its URL tells which page it left for.
+    let kind = "setting";
+    try {
+      const before = new URL(startUrl);
+      const after = new URL(frame.url());
+      if (after.pathname !== before.pathname) kind = "leave";
+      else if (after.search !== before.search) kind = "setting";
+      else if (after.hash !== before.hash) kind = "in-page";
+      else if (frame.isDetached()) kind = "leave";
+    } catch {
+      kind = "leave";
+    }
+    return { verdict: true, kind };
   }
 }
 
@@ -1087,7 +1279,7 @@ async function baselineInventory(browser, url, width, heightPx) {
 
 async function baselineTokens(browser, url, width, heightPx) {
   const entry = await baselinePage(browser, url, width, heightPx);
-  if (!entry.tokens) entry.tokens = await entry.page.evaluate(TOKEN_VALUES("", true));
+  if (!entry.tokens) entry.tokens = await entry.page.evaluate(`(${TOKEN_VALUES("", true)})()`);
   return entry.tokens;
 }
 
@@ -1169,16 +1361,36 @@ async function main() {
       }
       const pageKeys = [];
       for (const [frameIndex, iframe] of iframes.entries()) {
-        const frame = iframe ? await iframe.contentFrame() : page.mainFrame();
+        let frame = iframe ? await iframe.contentFrame() : page.mainFrame();
         const title = iframe ? await iframe.getAttribute("title") : null;
         const key = title ? `${label} / ${title}` : iframe ? `${label} / ${frame.url()}` : label;
         await frame.evaluate(() => document.fonts.ready);
         await frame.evaluate(COLOR_KERNEL);
         const result = await frame.evaluate(`(${MEASURE(rootSelector)})()`);
+        const compTokens = shippedWorld
+          ? await frame.evaluate(`(${TOKEN_VALUES(rootSelector)})()`)
+          : null;
         result.fit = fits[frameIndex];
         if (!result.fit.isDevice) failed.push(`${key}: surface is ${result.fit.device}, not a device pair (${devices.join(", ")})`);
         if (!result.fit.inWindow) failed.push(`${key}: frame ${result.fit.box.width}x${result.fit.box.height} at (${result.fit.box.x},${result.fit.box.y}) runs past the ${result.fit.window} window`);
-        result.operability = await checkOperability(page, iframe, { collect: true, scope: rootSelector });
+        result.operability = await checkOperability(page, iframe, { collect: true, scope: rootSelector, kindRoot: rootSelector });
+        frame = iframe ? await iframe.contentFrame() : page.mainFrame();
+        const kindMix = result.operability.kindMix;
+        delete result.operability.kindMix;
+        result.relational ??= { gated: [14], defects: [], exempted: [], mediaUnread: 0 };
+        result.relational.kindMix = { groups: kindMix.groups, defects: kindMix.defects };
+        result.relational.exempted.push(...kindMix.exempted);
+        for (const defect of kindMix.defects) {
+          result.relational.defects.push(`criterion 14: ${defect.kindA} "${defect.labelA}" and ${defect.kindB} "${defect.labelB}" look the same in one group (${defect.summary})`);
+        }
+        if (kindMix.measurementFailed) result.measurementFailed ??= kindMix.measurementFailed;
+        if (result.colorRead) {
+          result.colorRead.attempted += kindMix.colorRead.attempted;
+          result.colorRead.unread += kindMix.colorRead.unread;
+          result.colorRead.unreadSamples.push(...kindMix.colorRead.unreadSamples);
+        } else {
+          result.colorRead = kindMix.colorRead;
+        }
         const { inventory } = result.operability;
         delete result.operability.inventory;
         result.tokens = null;
@@ -1189,10 +1401,7 @@ async function main() {
           for (const u of result.correspondence.unpaired) failed.push(`${key}: unpaired control ${u.control} (${u.reason})`);
           for (const m of result.correspondence.missing) failed.push(`${key}: missing control ${m.control} (${m.reason})`);
           if (shippedWorld) {
-            const [compTokens, operatingTokens] = await Promise.all([
-              frame.evaluate(TOKEN_VALUES(rootSelector)),
-              baselineTokens(browser, baselines[index], w, h),
-            ]);
+            const operatingTokens = await baselineTokens(browser, baselines[index], w, h);
             const comp = new Map(compTokens.map(({ name, value }) => [name, value]));
             const operating = new Map(operatingTokens.map(({ name, value }) => [name, value]));
             const names = new Set([...comp.keys(), ...operating.keys()]);
