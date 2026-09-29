@@ -36,8 +36,15 @@
     <script>
       setTimeout(() => {
         const output = document.querySelector("output");
+        // mutation: the document after Alpha was pressed comes up without Beta's handler
+        const skipBeta = window.name === "alpha-pressed";
+        window.name = "";
         for (const button of document.querySelectorAll("button")) {
-          button.addEventListener("click", () => { output.textContent = `pressed ${button.textContent}`; });
+          if (skipBeta && button.textContent === "Beta") continue;
+          button.addEventListener("click", () => {
+            output.textContent = `pressed ${button.textContent}`;
+            if (button.textContent === "Alpha") window.name = "alpha-pressed";
+          });
         }
         document.documentElement.setAttribute("data-comp-ready", "");
       }, 2500);
