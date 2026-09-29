@@ -16,8 +16,8 @@
 5. **하드코딩이 숨는 자리** — STEP 1이 grep해야 할 곳.
 6. **없는 토큰을 가리키면 어떻게 실패하는가** — 오류인가, 아무것도 만들지 않는가, 문자열이 그대로
    값으로 통과하는가, **라이브러리 자신의 기본값으로 해석되는가**. 그리고 **라이브러리 자신에게 "이
-   참조가 무엇을 만드는가"를 묻는 방법**. 끊긴 참조 · 라이브러리 기본값 참조 · 반투명 포커스 표시(STEP 1
-   목록 5·6·7)는 소스 철자로는 가려지지 않으므로, 판정은 이 답으로만 한다.
+   참조가 무엇을 만드는가"를 묻는 방법**. 끊긴 참조 · 라이브러리 기본값 참조 · 반투명 포커스 표시 ·
+   반투명 글자(STEP 1 목록 5·6·7·9)는 소스 철자로는 가려지지 않으므로, 판정은 이 답으로만 한다.
 
 값의 정확한 목록은 라이브러리 버전과 함께 움직인다. **아래 토큰 이름은 출발점이고, 프로젝트가
 실제로 선언한 것이 권위다** — STEP 1은 항상 저장소에서 전수 수집한다.
@@ -75,6 +75,14 @@ v4는 `@theme`이 그 값을 유틸리티 이름으로 노출한다.
 `color-mix(in oklab, var(--ring) 50%, transparent)`로 나온다. 색을 싣는 선언은 `--tw-ring-color` ·
 `--tw-inset-ring-color` · `--tw-shadow-color` · `outline-color` · `border-*-color`다(어댑터
 `INDICATOR_COLOR`). VERIFIED(tailwindcss 4.2.0 · TuBrief detector · 2026-09-29 · `d7ad85b` 26건, HEAD 오탐 0).
+
+**글자색과 theme 값.** `text-*` 클래스를 변형째 `candidatesToCss`에 넣으면 글자색은 `color` 선언 하나로
+나오고, α 표기는 위와 같은 `color-mix(… transparent)`, 크기 유틸리티(`text-sm`)는 `color` 없이 나온다
+(어댑터 `textColourClasses`). 토큰 값은 `:root`가 든 선택자 블록과 `@theme` 블록이 기본층이고, 바탕
+토큰을 다시 선언하는 다른 블록(`.dark`)이 theme이다(`themeTables`). 팔레트 유틸리티(`text-white`)는
+`tailwindcss/theme.css`의 `@theme default`로 풀린다. 그 블록 안에 `@keyframes`가 중첩되어 있으므로
+블록은 중괄호 깊이로 읽는다. VERIFIED(tailwindcss 4.2.0 · TuBrief detector · 2026-09-29 · 탭 `/60` card
+4.17 = 캡처 실측, HEAD 오탐은 alert 1건 → 예외).
 
 **코드.** 이 절의 답은 [`scripts/adapters/tailwind.mjs`](scripts/adapters/tailwind.mjs)에 있다.
 MUI · Chakra는 아직 코드가 없다 — 첫 적용이 이 절의 답을 확인하면서 같은 모양의 어댑터 파일을 추가한다.

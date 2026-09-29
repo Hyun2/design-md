@@ -23,6 +23,8 @@
  *                   contrast changes with whatever ground it lands on
  * 8. out-of-gamut — a world colour declared outside sRGB, which a raster
  *                   clips before any contrast is measured
+ * 9. translucent-text — a text colour below alpha 1 whose composite over the
+ *                   worst declared ground falls under 4.5:1
  *
  * Scope is every file that renders, dev-only preview code included: a comp
  * preview was once left out, and a token the substrate pass deleted went on
@@ -38,6 +40,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { loadConfig } from "./config.mjs";
 import { gamutVerdict } from "./gamut.mjs";
+import { compositeContrast, resolveColour } from "./contrast.mjs";
 
 function listFiles(...globs) {
   const result = spawnSync("git", ["ls-files", ...globs], { encoding: "utf8" });
@@ -58,6 +61,7 @@ async function main() {
     declarationSheets = [],
     runtimeOwned = [],
     utilityExempt = [],
+    grounds = [],
     vocabularies = {},
     deferred = [],
   } = config.detect;
@@ -328,6 +332,64 @@ async function main() {
           : `${written} — 이 검사가 계산하지 못하는 색 표기다(읽지 못한 값)`,
       });
     });
+
+  /* 9. translucent text. A text colour below alpha 1 composites differently on
+   * every ground, and a render sample holds only the grounds its screens used:
+   * TuBrief's inactive tab `text-foreground/60` was 4.49 and read 4.17 after
+   * the light ladder moved, found only once the full capture ran. So every
+   * translucent text colour is composited over every declared ground in every
+   * theme, and the worst must reach 4.5 — the size is unknown here, so the
+   * body-text threshold holds for all. Disabled variants are exempt as WCAG
+   * 1.4.3 exempts inactive components; alpha 0 paints nothing. */
+  const TEXT_THRESHOLD = 4.5;
+  const textHits = new Map();
+  for (const file of renderedFiles) {
+    const text = stripComments(renderedText[file]);
+    for (const { body, at } of adapter.classStrings(file, text)) {
+      for (const { cls, index } of adapter.textColourClasses(body)) {
+        if (utilityExempt.some((e) => e.file === file && e.text === cls)) continue;
+        const line = text.slice(0, at + index).split("\n").length;
+        const list = textHits.get(cls) ?? [];
+        list.push(`${file}:${line}`);
+        textHits.set(cls, list);
+      }
+    }
+  }
+  const textClasses = [...textHits.keys()];
+  /* The library's own sheet goes first so a palette utility (`text-white`)
+   * resolves, and the world's declarations override it. */
+  const librarySheets = await Promise.all(adapter.LIBRARY_SHEETS.map((s) => readFile(path.join("node_modules", s), "utf8")));
+  const themes = adapter.themeTables([...librarySheets, css].join("\n"), grounds);
+  const report = (cls, what) => {
+    for (const where of textHits.get(cls)) findings.push({ kind: "translucent-text", where, what: `${cls} — ${what}` });
+  };
+  compiles(textClasses).forEach((cssText, i) => {
+    const cls = textClasses[i];
+    if (!cssText || /disabled/i.test(cssText)) return;
+    for (const [, value] of cssText.matchAll(/(?<![\w-])color\s*:\s*([^;]+);/g)) {
+      let worst = null;
+      for (const [theme, table] of Object.entries(themes)) {
+        const fg = resolveColour(value, table);
+        if (!fg) return report(cls, `${theme}에서 글자색 ${value.trim()}을 계산하지 못한다(읽지 못한 값)`);
+        if (fg === "inherited" || fg.alpha >= 1 || fg.alpha === 0) continue;
+        if (!grounds.length) return report(cls, "반투명 글자색인데 설정 detect.grounds가 비어 있어 바탕을 알 수 없다");
+        for (const name of grounds) {
+          const ground = table[name] === undefined ? null : resolveColour(`var(${name})`, table);
+          if (!ground || ground === "inherited" || ground.alpha < 1) {
+            return report(cls, `${theme}의 바탕 ${name}을 불투명 색으로 계산하지 못한다(읽지 못한 값)`);
+          }
+          const ratio = compositeContrast(fg, ground);
+          if (!worst || ratio < worst.ratio) worst = { ratio, theme, name, alpha: fg.alpha };
+        }
+      }
+      if (worst && worst.ratio < TEXT_THRESHOLD) {
+        report(
+          cls,
+          `α ${+worst.alpha.toFixed(3)} 글자가 ${worst.theme}의 ${worst.name} 위에서 ${worst.ratio.toFixed(2)} < ${TEXT_THRESHOLD} (선언된 바탕 중 가장 불리한 곳)`,
+        );
+      }
+    }
+  });
 
   if (census) {
     for (const [token, read] of Object.entries(fate)) console.log(`${read.padEnd(8)} ${token}`);

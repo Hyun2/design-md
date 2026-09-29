@@ -159,10 +159,11 @@ S1에서 세션이 끊기므로 **다음 세션은 대화가 아니라 파일을
   대비는 **인접 바탕**에 대해 잰다: 바깥 층은 부모의 바닥, 안쪽(inset) 층은 요소 자신의 바닥,
   border처럼 경계에 걸친 층은 둘 중 나쁜 쪽. 강제한 state는 transition을 시작시키므로, 읽기 전에
   요소의 animation을 끝 상태로 보낸다.
-- **선언의 gamut만은 산술로 묻는다.** 목록 8(「STEP 1」)은 칠해진 색이 아니라 **선언된 값**이 sRGB 안에
+- **선언의 gamut과 α 글자 합성은 산술로 묻는다.** 목록 8(「STEP 1」)은 칠해진 색이 아니라 **선언된 값**이 sRGB 안에
   있는지를 묻는데, 래스터는 범위 밖 색을 sRGB 경계로 잘라 칠하므로 그 질문에 답하지 못한다. 그래서
   [`scripts/gamut.mjs`](scripts/gamut.mjs)가 CSS Color 4의 변환식으로 선언을 계산하고, 계산하지 못하는
-  표기는 `null`로 돌려 detector가 결함으로 센다. 칠해진 색을 읽는 일은 여전히 커널만 한다.
+  표기는 `null`로 돌려 detector가 결함으로 센다. 목록 9는 렌더되지 않은 바탕 위의 합성을 묻기 때문에 같은
+  변환 위에서 [`scripts/contrast.mjs`](scripts/contrast.mjs)가 합성한다. 칠해진 색을 읽는 일은 여전히 커널만 한다.
 
 **검사 코드는 이 SKILL에 있고, 프로젝트에는 설정 하나만 남는다.** 저장소에만 있는 검사는 그
 저장소만 지키고, 다음 프로젝트는 같은 결함을 처음부터 다시 만든다(TuBrief에서 corner 단 수를
@@ -183,9 +184,9 @@ S1에서 세션이 끊기므로 **다음 세션은 대화가 아니라 파일을
 - `detect` — `tokensFile`(토큰 선언 시트) · `sources`(렌더되는 모든 파일의 git glob, 시안 포함) ·
   `primitives`(primitive 파일 glob) · `designDoc`(권위 문서) · `stylesheetBase` ·
   `declarationSheets`(선언을 인정할 `node_modules` 시트) · `runtimeOwned`(라이브러리가 런타임에 쓰는
-  변수) · `utilityExempt`(파일 · 쓰인 그대로의 문자열 · 사유 — 목록 5·6·7은 클래스 문자열, 목록 8은
-  `tokensFile`의 선언 `--이름: 값`을 건너뛴다) · `vocabularies`(어휘 이름 → 토큰 목록) ·
-  `deferred`(이월 목록: `what · measured · threshold · authority · carriedTo`).
+  변수) · `utilityExempt`(파일 · 쓰인 그대로의 문자열 · 사유 — 목록 5·6·7·9는 클래스 문자열, 목록 8은
+  `tokensFile`의 선언 `--이름: 값`을 건너뛴다) · `grounds`(글자가 놓이는 면 토큰 이름, 목록 9) ·
+  `vocabularies`(어휘 이름 → 토큰 목록) · `deferred`(이월 목록: `what · measured · threshold · authority · carriedTo`).
 - `capture` — `rows`(각 행 `id · container · smoke`와 그 밖의 서술 필드) · `themes` · `viewports`
   (`name · width · height`) · `lang` · `base` · `out` · `statesAt`(state를 재는 viewport 이름) ·
   `scroller`(문서 대신 스크롤되는 요소, 없으면 생략) · `setup()`(행 렌더에 필요한 계정·데이터를 읽는다.
@@ -291,6 +292,15 @@ world의 출처를 확정한다. **권위 문서가 있다는 사실이 world가
    센다. 값의 권위는 world에 있으므로 이 pass가 값을 고치지 않고 `out-of-authority`로 올린다(「역할과 gate」).
    owner가 ⓑ · ⓒ를 고르면 이월 목록에 더해 그 선언을 `utilityExempt`에 올린다 — 이월 목록은 종료 코드를
    바꾸지 않으므로, 올리지 않으면 detector가 매 커밋을 막는다.
+9. **반투명 글자(translucent text)** — 글자색의 α가 1보다 작아서, 선언된 바탕(설정 `grounds`) 중 가장 불리한
+   바탕에 합성했을 때 대비가 4.5:1 미만인 곳. 합성 대비는 바탕마다 다르고, 비회귀 캡처는 표본 화면에 실제로
+   놓인 바탕만 잰다. 그래서 바탕 값이 바뀐 commit이 캡처가 돌 때까지 통과한다(2026-09 TuBrief light 사다리
+   amendment: 비활성 탭 `text-foreground/60` 4.49 → 4.17, 구분자 `/50` 2.22 → 2.21). 판정은 목록 5와 같이 클래스를
+   변형째 컴파일해 나온 글자색을, theme마다 토큰 값까지 풀어 `grounds`의 각 바탕에 합성한 값이다 — 토큰 선언
+   자체의 α도 여기서 잡힌다. 글자 크기는 모르므로 모든 글자에 4.5를 적용한다. disabled 변형은 빼고(WCAG
+   1.4.3의 비활성 컴포넌트 면제), α 0은 칠하지 않으므로 뺀다. 요소 자신의 바탕이 가장 불리한 바탕이 아니어서
+   생긴 실패는 `utilityExempt`에 실제 바탕과 그 대비를 사유로 올린다. 요소·조상의 `opacity`로 흐려진 글자는
+   이 목록도 캡처도 보지 못한다.
 
 **기준선을 지금 뜬다.** STEP 3이 값을 바꾸기 전에 재현 가능한 before를 확보한다. 라우터에서
 **전 화면**을 뽑아 manifest를 만들고(화면이 20개를 넘으면 표본안을 S1 제출물에 넣되, 승인

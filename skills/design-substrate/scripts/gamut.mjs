@@ -10,7 +10,8 @@
  *
  * Conversions follow CSS Color 4 §17 (OKLab → linear sRGB; Lab/LCH through
  * XYZ-D50 with Bradford to D65; display-p3 through XYZ-D65). A function this
- * file cannot evaluate returns `null`, and the caller counts it.
+ * file cannot evaluate returns `null`, and the caller counts it. List 9
+ * (`contrast.mjs`) reuses the same conversion to composite declared colours.
  */
 
 const D50_TO_D65 = [
@@ -71,7 +72,7 @@ function number(token, percentOf) {
  * when this file cannot evaluate it. `"srgb"` means the value is sRGB by
  * construction (hex, rgb(), hsl(), hwb(), named, color(srgb …)) and cannot leave it.
  */
-function srgbChannels(value) {
+export function srgbChannels(value) {
   const v = value.trim().toLowerCase();
   if (/^#[0-9a-f]{3,8}$/.test(v) || /^(rgba?|hsla?|hwb)\(/.test(v) || /^color\(\s*srgb\s/.test(v) || /^[a-z]+$/.test(v)) {
     return "srgb";

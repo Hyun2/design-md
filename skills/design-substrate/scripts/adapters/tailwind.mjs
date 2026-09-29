@@ -177,6 +177,51 @@ export const INDICATOR_COLOR =
   /(--tw-(?:inset-)?ring-color|--tw-shadow-color|outline-color|border(?:-[a-z]+)?-color)\s*:\s*([^;]+);/g;
 
 /**
+ * Text colours (STEP 1 list 9): every class as written, variants included,
+ * that ends in a `text-` utility. Size utilities (`text-sm`) come along and
+ * compile to no `color`, which is how they drop out.
+ */
+export function textColourClasses(body) {
+  return [...body.matchAll(/\S+/g)]
+    .filter((m) => /^!?-?text-/.test(baseUtility(m[0])))
+    .map((m) => ({ cls: m[0], index: m.index }));
+}
+
+/**
+ * The token values each theme resolves, read off the token sheet: every block
+ * whose selector list includes `:root`, plus the `@theme` blocks, form the
+ * base, and every other block that re-declares one of `names` (`.dark`, a
+ * `[data-panel]` re-point) is a theme laid over that base. Keyed by selector.
+ */
+export function themeTables(css, names) {
+  /* A brace walk, not a block regex: `@theme` holds nested `@keyframes`, and
+   * a regex over innermost blocks drops every declaration beside them. */
+  const blocks = [];
+  const stack = [];
+  let buffer = "";
+  for (const ch of css.replace(/\/\*[\s\S]*?\*\//g, "")) {
+    if (ch === "{") {
+      stack.push({ selector: buffer.trim().replace(/\s+/g, " "), decls: {} });
+      buffer = "";
+    } else if (ch === "}" || ch === ";") {
+      const decl = buffer.match(/^\s*(--[\w-]+)\s*:\s*([\s\S]+?)\s*$/);
+      if (decl && stack.length) stack.at(-1).decls[decl[1]] = decl[2];
+      if (ch === "}" && stack.length) blocks.push(stack.pop());
+      buffer = "";
+    } else buffer += ch;
+  }
+  const isRoot = (selector) => selector.split(",").some((s) => s.trim() === ":root");
+  const isBase = (selector) => isRoot(selector) || selector.startsWith("@theme");
+  const base = Object.assign({}, ...blocks.filter((b) => isBase(b.selector)).map((b) => b.decls));
+  const tables = { [blocks.find((b) => isRoot(b.selector))?.selector ?? ":root"]: base };
+  for (const b of blocks) {
+    if (isBase(b.selector) || !names.some((n) => n in b.decls)) continue;
+    tables[b.selector] = { ...base, ...(tables[b.selector] ?? {}), ...b.decls };
+  }
+  return tables;
+}
+
+/**
  * Question 6: does this utility generate anything? The answer comes from
  * Tailwind itself — a missing `--color-*` registration is not an error there,
  * the class just compiles to nothing. The design system is loaded from the
