@@ -63,7 +63,7 @@ library가 그 머신에 없어 공개 자료로 대체한 경우에도 판단 �
 | 3 | rhythm이 보이는 개수: desktop 8개 이상, mobile 4개 이상 | STEP 3·5 |
 | 4 | 제품이 출하하는 **모든 theme** | STEP 5 |
 | 5 | **모든 state**가 comp 안에 존재: empty·loading·error·예외 | STEP 5 |
-| 6 | **실제 font·token**. 임시 CDN 대체 금지 | STEP 3·5 |
+| 6 | **실제 font·token**. 임시 CDN 대체 금지. world가 집행층에 들어간 뒤(substrate pass 이후)에는 시안 범위가 토큰을 **다시 선언하지 않고** 운영 값을 그대로 읽는다 — 다른 값이 필요하면 G1 amendment다. 운영 값과 다른 토큰은 「Shipped-world check」가 잡고, 같은 값의 재선언은 시안 범위의 CSS에서 지운다 | STEP 3·5 |
 | 7 | 화면에 **보이는 컨트롤은 전부 동작**한다. 동작시키지 않을 컨트롤은 `data-comp-inert="<사유>"` — 「operability check」가 판정. 컨트롤이 여는 **popup(select · menu · popover)도 후보 world로 그려진다** — preview 라우트는 portal이 붙는 컨테이너까지 world 범위를 싣는다(TuBrief: frame의 `<body>`에 `data-comp-world`). 운영 화면이 있으면 시안의 컨트롤은 운영 컨트롤과 **짝**을 이룬다. 새 컨트롤은 `data-comp-new="<사유>"`, 뺀 컨트롤은 사유를 달아 선언 — 「correspondence check」가 판정 | STEP 3·5 |
 | 8 | 캡처 후 defect를 **스스로 scan**해 목록을 붙여 제출 | STEP 5 |
 | 9 | 「Acceptance criteria」 표를 **comp 단계에서** 채움 | STEP 5 |
@@ -124,7 +124,7 @@ commit이 바뀌거나 tree가 dirty가 되어 드러난다.
 
 | 항목 | 규약 |
 |---|---|
-| 입력 | `--urls`마다 운영 화면 URL 하나, **같은 locale**. frame은 자기 크기로 운영 화면과 비교한다 |
+| 입력 | `--urls`마다 운영 화면 URL 하나. 운영 화면은 frame과 **같은 상태**를 연다: 같은 locale · 같은 레코드 · 같은 콘텐츠 언어 · 같은 theme. UI 언어와 콘텐츠 언어가 따로 있는 제품은 호출부가 둘 다 맞춘다 — 2026-09 G2에서 `/ar` 운영 화면이 ar 요약을 열어, ko 요약을 읽는 frame의 타임라인 라벨이 짝을 잃었다. frame은 자기 크기로 운영 화면과 비교한다 |
 | 목록 | 쉴 때 surface에 있는 컨트롤 + 동작 검사가 연 **popup 안의** 컨트롤(dialog · listbox · menu · `[popover]`). popup 안은 reload 전에 읽는다 |
 | 짝 | (종류, 자리, 라벨)이 맞으면 짝이다. 종류는 `text`(입력칸)와 `action`(나머지) 둘뿐이다. 자리는 `surface` / `popup`. 라벨은 aria-label · placeholder · title · 글자 중 하나라도 같으면 맞다 |
 | 목록형 | 한 자리에 5개 이상 반복된 **링크**이고 라벨이 서로 다르면 data(상세로 가는 카드)다. 시안은 corpus에서 뽑고 운영은 DB에서 가져오므로 **목록이 있는지**만 짝짓는다. 링크가 아닌 반복(주제 칩 · 필터 · 언어 메뉴)은 하나씩 짝짓는다. G1 시안에서는 손으로 쓴 주제 칩 · 필터 셋 · 검색칸이 형제 `span` 12개였고, 라벨이 다양한 반복을 data로 치는 규칙은 어떤 형태든 검색칸을 「12개짜리 목록」에 숨겼다 |
@@ -139,6 +139,18 @@ commit이 바뀌거나 tree가 dirty가 되어 드러난다.
 종류의 컨트롤이 둘 있고 두 라벨이 서로 바뀌면 잡지 못한다. 종류를 ARIA role보다 거칠게 두는 것은
 의도다. TuBrief에서 같은 로그인 컨트롤이 시안에서는 `span`, 운영에서는 `a[role=button]`이었다. 채널
 선택도 한쪽은 button, 다른 쪽은 combobox였다.
+
+### Shipped-world check (출하 world 검사)
+
+world가 집행층에 들어간 뒤의 시안(STEP 5)은 `--baseline`에 더해 `--shipped-world`로 잰다. 측정기는
+스타일시트의 커스텀 프로퍼티를 전부 모아 시안의 `--root`와 운영 화면의 `<body>`에서 해석하고, 운영
+화면에 값이 있는 이름 중 하나라도 값이 다르면 exit 1이다(`tokens.drift`). 운영 화면에서 비어 있는
+이름은 시안 전용이라 비교하지 않는다. 플래그 없이 돌면 `tokens: null` — 검사하지 않음이다. G1의
+후보는 운영과 일부러 다르므로 이 플래그를 주지 않는다.
+
+2026-09 G2에서 시안 범위가 substrate 이전의 `--font-sans` 사본을 다시 선언해, 시안의 한글이 운영
+화면과 다른 글꼴로 그려졌다. 「Operability check」의 popup 검사는 surface와 popup이 **서로** 같은지만
+보므로, 낡은 사본을 popup에까지 강제한 수정도 통과했다. 어느 쪽이 운영 값인지는 이 검사가 본다.
 
 ## Acceptance criteria (수용 기준)
 
@@ -178,6 +190,7 @@ deletion test 3건 실패(legend·state stamp·thumbnail chip). correctness gate
 | **label source(라벨 출처)** | 운영 화면이 컨트롤의 문구를 가져오는 참조. 라이브러리마다 다르다: react-i18next는 번역 키(`t("videos.search.placeholder")`), FormatJS는 메시지 ID, i18n이 없으면 소스 리터럴의 위치. 「Comp fidelity conditions」 1번의 대상 |
 | **correspondence check(대응 검사)** | 시안의 컨트롤을 운영 화면의 컨트롤과 (종류, 자리, 라벨)로 짝짓는 제출 전 검사. 「Comp fidelity conditions」 1·7번의 판정 수단이며, 선언은 `data-comp-new` · `data-comp-dropped` |
 | **fit check(맞춤 검사)** | 조작 전에 frame마다 두 가지를 보는 제출 전 검사: 크기(`innerWidth`×`innerHeight`)가 `--devices`의 기기 쌍 중 하나인가, 축소가 반영된 화면상 사각형이 창 안에 전부 들어오는가. 「Comp fidelity conditions」 10번의 판정 수단이다. 창(`--viewport` × `--height`)은 시험 조건이다 — 창에 맞춰 축소하는 셸은 어떤 창에도 들어가므로, 이 검사가 잡는 것은 축소·배치가 틀린 셸이다(2026-09: RTL에서 frame이 창 왼쪽 밖에 그려짐, 1280×720·1440×900 둘 다) |
+| **shipped-world check(출하 world 검사)** | 시안 루트에서 해석된 토큰 값을 운영 화면의 값과 비교하는 제출 전 검사(`--shipped-world`). 「Comp fidelity conditions」 6번의 판정 수단이며, world가 집행층에 들어간 뒤에만 쓴다 |
 
 ## Owner feedback templates (오너 피드백 템플릿)
 
@@ -218,12 +231,12 @@ B안: 좋음 - … / 나쁨 - … / 지울 것 - …
 
 > "이건 decision round다. 종료는 내가 정한다. 다음 round를 만들어라."
 
-## Relational acceptance criteria (관계 기준 8~12)
+## Relational acceptance criteria (관계 기준 8~12 · 14)
 
 위 「Acceptance criteria」 7개는 전부 **요소 하나**의 속성이다(얼마나 큰가, 얼마나 밝은가,
 얼마나 진한가). 그런데 owner가 먼저 알아채는 결함은 거의 항상 **요소 사이**에 있다. 2026-09
 TuBrief G1 라운드에서 기준 1~7을 전부 통과한 상태로 owner가 지적한 결함 6건이 모두 관계적
-이었다. 그래서 아래 5개를 라운드마다 함께 **수치로** 보고하고, 결함을 가른다고 실측된 것은
+이었다. 그래서 아래 6개를 라운드마다 함께 **수치로** 보고하고, 결함을 가른다고 실측된 것은
 run을 실패시킨다.
 
 | # | 기준 | threshold | 판정 | 무엇을 잡는가 |
@@ -233,16 +246,17 @@ run을 실패시킨다.
 | 10 | **Column void** — **같은 행**(세로 범위가 겹치고 가로 범위가 겹치지 않는 형제, 부모는 grid 또는 가로 flex)에 놓인 **칠해진 상자**(바탕을 바꾸는 배경색 · 배경 이미지 · 테두리 · 그림자)마다, 상자 안에서 **글자 줄 · 그림 · 칠해진 하위 상자가 하나도 닿지 않는 가장 긴 세로 구간**(빈 띠). 위치는 가리지 않는다 — 중간이든 바닥이든. 높이 차이는 재지 않는다. 칠하지 않은 컬럼이 짧게 끝나면 그 아래는 페이지 바탕이지 빈 상자가 아니다 | 빈 띠 **≥ 4rem 그리고 ≥ 상자 높이의 15%**면 실패 | **exit 1** | 옆 무대 높이로 늘린 요약 상자 가운데의 350px(53%) 빈 띠 — `flex-1` 목록이 메타 줄을 바닥에 붙여 바닥 여백은 2.7%뿐이었다. 수정본은 상자를 내용에서 끝내 19px(4.8%). grid가 형제 카드 높이로 늘린 카드의 바닥 빈 띠(1920 목록 170~331px)도 같은 결함이다. 옛 정의(높이 분산 + `scrollHeight ÷ 높이`)는 결함을 통과시키고 수정본을 실패시켰다(tubrief-v2#62) |
 | 11 | **Heading fill** — display 크기(≥ 28px) 제목 중 **두 줄 이상으로 꺾인 것**의 가장 긴 줄 ÷ 컬럼 폭. 한 줄로 끝나는 제목은 단어만큼 긴 것이므로 판정하지 않는다 | **≥ 70%** | **exit 1** | `text-balance`가 만든 짧은 4줄 |
 | 12 | **Duplicate text** — 화면에 **보이는** 요소의 24자 이상 동일 문자열의 중복 출현. CSS로 잘라 보인 사본은 같은 문자열이므로 잡히고, 코드에서 잘라 붙인 접두어는 다른 문자열이라 잡히지 않는다 | **0건** | **exit 1** | 아래 블록이 할 말을 위에서 잘라 보여주기 |
+| 14 | **Control kind mix** — 동작 검사가 컨트롤을 눌러 본 결과로 **종류**를 가른다: 경로가 바뀌면 `leave`(페이지를 떠남), 스크롤·해시만 바뀌면 `in-page`, popup이 열리면 `opens`, 경로는 같고 query나 화면 내용이 바뀌면 `setting`. 같은 줄이고 가장 가까운 flex/grid 조상이 같은 컨트롤 중 **종류가 다른데 모양이 같은** 쌍. 모양은 높이 · 네 변의 테두리 폭과 색 · 합성된 배경색 · 모서리 · 글자 굵기와 크기. 출력 `operability.kinds` · `relational.kindMix` | **0쌍** | **exit 1** | 「목록으로 돌아가기」(leave) · 「설명」(in-page) · 언어 칩(setting)이 한 묶음에서 같은 테두리 + 36px(2026-09 G2, owner 지적). 기준 8의 「한 줄은 같은 높이」는 같은 줄에 무엇이든 놓아도 된다는 뜻이 아니다 — 종류가 다르면 자리나 테두리·채움으로 가른다 |
 
-**판정.** 기준 8~12는 **결함 commit에서 실패하고 수정 commit에서 통과하는 것을 실측한 뒤**
+**판정.** 기준 8~12 · 14는 **결함 commit에서 실패하고 수정 commit에서 통과하는 것을 실측한 뒤**
 gate가 되었다(2026-09 TuBrief). 새 관계 기준도 같은 순서를 밟는다: red/green을 재기 전에는
 보고만 한다.
 
-**예외.** 의도한 예외는 요소(또는 조상)에 `data-comp-exempt="<8|9|10|11|12>: <사유>"`를 단다. 여럿이면
+**예외.** 의도한 예외는 요소(또는 조상)에 `data-comp-exempt="<8|9|10|11|12|14>: <사유>"`를 단다. 여럿이면
 `;`로 잇는다. 컨트롤이 하나도 없는 화면은 루트에 `8: <사유>`. 예외 요소는 판정에서 빠지고 출력
 `relational.exempted`에 사유와 함께 실린다. **run은 통과하지만 승인은 owner가 한다** — 제출은 이
 목록을 수용 기준 표에 싣고, owner가 gate에서 한 줄씩 승인하거나 반려한다(STEP 7 완료 조건의
-「owner가 승인한 예외 사유」와 같은 것이다). 기준 번호가 8~12가 아니거나 사유가 빈 선언은
+「owner가 승인한 예외 사유」와 같은 것이다). 기준 번호가 8~12 · 14가 아니거나 사유가 빈 선언은
 그 자체로 exit 1이다. 예외의 개수는 곧 임계값의 오탐 표본이다.
 
 **구현.** `scripts/measure-surface.mjs`가 렌더된 DOM에서 읽는다(TuBrief 호출부:
@@ -266,5 +280,5 @@ G1 Reader는 Brief와 Transcript를 1440에서 2열로 놓았다가 탭으로 �
 본문에서 1ch를 0.55~0.6em으로 잡으면 둘 다 약 37~41em이다(`7a009e2^` → `7a009e2`의 클래스에서
 계산, 렌더 측정 아님).
 
-**관계 기준을 고르는 법.** 위 5개는 이 사례에서 나온 것이다. 새 프로젝트는 **그 화면이 반복하는
+**관계 기준을 고르는 법.** 위 6개는 이 사례에서 나온 것이다. 새 프로젝트는 **그 화면이 반복하는
 것**에서 최소 하나를 추가한다 — 바 위의 컨트롤, 그리드의 카드, 표의 행, 목록의 아이템.

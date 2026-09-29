@@ -78,8 +78,13 @@
  *             「Comp fidelity conditions」 10)
  *   --root      selector the measurement is scoped to, default body
  *   --out       output file, default measure.json
- *   --baseline  comma-separated operating-screen URLs, one per --urls entry and
- *             in the same locale; a frame is compared at its own size
+ *   --baseline  comma-separated operating-screen URLs, one per --urls entry,
+ *             each rendering the frame's state (locale, record, content
+ *             language, theme); a frame is compared at its own size
+ *   --shipped-world  the world already ships in the operating screen (after
+ *             the substrate pass): every token the baseline defines must
+ *             resolve to the same value at --root, or the run fails. Needs
+ *             --baseline; without it the output says `tokens: null`
  *
  * Colour is read by the shared kernel in `design-substrate/scripts/color-kernel.mjs`
  * (override the skill location with DESIGN_SUBSTRATE_HOME). Every row carries

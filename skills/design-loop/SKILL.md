@@ -102,7 +102,7 @@ owner에게 확인받는다. 근거를 못 찾은 항목은 빈칸으로 두고 
    화면이 있으면 `--baseline`에 그 URL을 넘긴다. 그
    `_provenance.commit`을 제출에 명시하고, `operability.inert`(비동작 컨트롤과 사유) ·
    `correspondence.new` · `correspondence.dropped`(새로 넣은 · 뺀 컨트롤과 사유) ·
-   `relational.exempted`(관계 기준 8~12의 예외와 사유 — owner가 한 줄씩 승인하거나 반려한다)와
+   `relational.exempted`(관계 기준 8~12 · 14의 예외와 사유 — owner가 한 줄씩 승인하거나 반려한다)와
    조작 결과 대응표를 붙인다. [`REFERENCE.md`](REFERENCE.md) 「Operability check」 · 「Correspondence
    check」 · 「Relational acceptance criteria」. 측정 뒤에 파일을 한 줄이라도 쓰면 다시 잰다
 
@@ -134,12 +134,16 @@ world는 고정하고 layout만 세 가지로 만든다. world와 composition의
 
 1. 이 surface의 **composition variable 3~4개를 직접 도출**해 owner에게 제시한다. 도출 규칙:
    - 각 variable은 이 surface의 content와 task에서 나온다(일반론 금지)
-   - 각 variable은 값이 3개 이상
+   - 각 variable은 값이 3개 이상이고, 값마다 **기기 4종 각각에서의 관찰값을 수치로** 적는다
+     (계산이면 「추정」). 어떤 기기에서 두 값의 수치가 같으면 그 기기에서는 비교 재료가 아니라고
+     제안에 적고, 4종 모두에서 같으면 한 값이다 — 2026-09 G2에서 V1의 셋째 값이 1440×900에서
+     값 a와 같은 takeaway top ≈953을 냈는데 제안은 그것을 알리지 않았다
    - 최소 하나는 "무엇을 dominant element(지배 요소)로 둘 것인가"
    - 최소 하나는 "information density(정보 밀도)"
    - world(palette·type family·corner·elevation)는 variable이 아니다
 2. variable 승인 후 3안을 만든다. **「Comp fidelity conditions」 10개를 전부** 만족시키고,
-   STEP 3의 4번(제출 증거)을 같은 형식으로 붙인다
+   STEP 3의 4번(제출 증거)을 같은 형식으로 붙인다. world가 집행층에 들어가 있으면 `--shipped-world`를
+   함께 준다([`REFERENCE.md`](REFERENCE.md) 「Shipped-world check」)
 3. 각 안에서 **지워도 되는 element를 스스로 지목**한다 — 테두리·배경을 가진 컨테이너도
    element다([`REFERENCE.md`](REFERENCE.md) 체크리스트 13)
 
