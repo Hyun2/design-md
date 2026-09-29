@@ -183,14 +183,16 @@ async function perChar(page, cdp, rootId, idx) {
   return result;
 }
 
-/* Read every text-bearing element not yet read in an earlier state. */
+/* Read every text-bearing element not yet read in an earlier state. The key
+ * carries the computed family, so a state that re-renders the same text in
+ * another face is read again. */
 async function measureState(page, cdp, nodes, state, tally) {
   const records = await page.evaluate(markTextNodes, allowedSelector);
   tally.textElements += records.length;
   const { root } = await cdp.send("DOM.getDocument", { depth: -1 });
   const byIdx = await nodeIdsBy(cdp, root.nodeId, "[data-fa]", "data-fa");
   for (const r of records) {
-    const key = `${r.path}::${r.text}`;
+    const key = `${r.path}::${r.text}::${r.fontFamily}`;
     if (nodes.has(key)) continue;
     const { fonts: faces } = await cdp.send("CSS.getPlatformFontsForNode", { nodeId: byIdx[r.i] });
     const record = { ...r, state, faces };
@@ -205,38 +207,93 @@ async function settle(page) {
   await page.evaluate(() => document.fonts.ready);
 }
 
-/* The states a row is read in: default, each tab selected, each collapsed
- * disclosure opened (and closed again with Escape so the next one is reached
- * from the same ground). A control that leaves the page is not a state. */
-async function walkStates(page, cdp, nodes, tally) {
-  await measureState(page, cdp, nodes, "default", tally);
-  const url = page.url();
-  for (const [kind, selector] of [
-    ["tab", '[role="tab"]'],
-    ["disclosure", '[aria-expanded="false"][aria-controls]'],
-  ]) {
-    const count = await page.locator(selector).count();
-    for (let index = 0; index < count; index++) {
-      const control = page.locator(selector).nth(index);
-      if (!(await control.isVisible().catch(() => false))) continue;
-      const label = (await control.innerText().catch(() => "")).trim().slice(0, 40) || `#${index}`;
-      try {
-        await control.click({ timeout: 3000 });
-      } catch {
-        continue;
+/* Marks the visible controls matching `selector` with `attribute` = 0..n-1 and
+ * returns n. Marking once, before any click, keeps the targets fixed: a live
+ * `[aria-expanded="false"]` query shrinks as each one opens, and stepping an
+ * index through it skips every other control. */
+function markControls([selector, attribute]) {
+  document.querySelectorAll(`[${attribute}]`).forEach((e) => e.removeAttribute(attribute));
+  let n = 0;
+  for (const el of document.querySelectorAll(selector)) {
+    const r = el.getBoundingClientRect();
+    const cs = getComputedStyle(el);
+    if (r.width === 0 || r.height === 0 || cs.visibility === "hidden") continue;
+    el.setAttribute(attribute, String(n++));
+  }
+  return n;
+}
+
+const TAB = ['[role="tab"]', "data-fa-tab"];
+const DISCLOSURE = ['[aria-expanded="false"][aria-controls]', "data-fa-disclosure"];
+
+/* Clicks a marked control. Returns its label, or null when the click failed
+ * or left the page — a control that navigates is not a state of this row, and
+ * the page is reloaded so the caller can restore its ground. */
+async function press(page, [, attribute], index, url) {
+  const control = page.locator(`[${attribute}="${index}"]`);
+  if ((await control.count()) === 0 || !(await control.isVisible().catch(() => false))) return null;
+  const label = (await control.innerText().catch(() => "")).trim().slice(0, 40) || `#${index}`;
+  try {
+    await control.click({ timeout: 3000 });
+  } catch {
+    return null;
+  }
+  await settle(page);
+  if (page.url() === url) return label;
+  await page.goto(url, { waitUntil: "networkidle", timeout: 45000 }).catch(() => {});
+  await settle(page);
+  return null;
+}
+
+/* In the current ground, opens each closed disclosure, reads, and closes it
+ * again — by its own toggle when it reports itself open, otherwise Escape — so
+ * the next one is reached from the same ground. `restore` re-creates the
+ * ground after a control left the page. */
+async function openDisclosures(page, cdp, nodes, tally, ground, url, restore) {
+  const count = await page.evaluate(markControls, DISCLOSURE);
+  for (let index = 0; index < count; index++) {
+    const control = page.locator(`[${DISCLOSURE[1]}="${index}"]`);
+    if ((await control.getAttribute("aria-expanded").catch(() => null)) !== "false") continue;
+    const label = await press(page, DISCLOSURE, index, url);
+    if (label === null) {
+      if (page.url() === url && (await page.locator(`[${DISCLOSURE[1]}]`).count()) === 0) {
+        await restore();
+        await page.evaluate(markControls, DISCLOSURE);
       }
-      await settle(page);
-      if (page.url() !== url) {
-        await page.goto(url, { waitUntil: "networkidle", timeout: 45000 }).catch(() => {});
-        await settle(page);
-        continue;
-      }
-      await measureState(page, cdp, nodes, `${kind}:${label}`, tally);
-      if (kind === "disclosure") {
-        await page.keyboard.press("Escape");
-        await settle(page);
-      }
+      continue;
     }
+    await measureState(page, cdp, nodes, `${ground} > disclosure:${label}`, tally);
+    if ((await control.getAttribute("aria-expanded").catch(() => null)) === "true") {
+      await control.click({ timeout: 3000 }).catch(() => page.keyboard.press("Escape"));
+    } else {
+      await page.keyboard.press("Escape");
+    }
+    await settle(page);
+  }
+}
+
+/* The states a row is read in: the default ground and each tab selected as a
+ * ground, and in every ground each closed disclosure opened. A panel closed
+ * inside the second tab exists only while that tab is selected. */
+async function walkStates(page, cdp, nodes, tally) {
+  const url = page.url();
+  const reload = async () => {
+    await page.goto(url, { waitUntil: "networkidle", timeout: 45000 }).catch(() => {});
+    await settle(page);
+  };
+  await measureState(page, cdp, nodes, "default", tally);
+  await openDisclosures(page, cdp, nodes, tally, "default", url, reload);
+  const tabs = await page.evaluate(markControls, TAB);
+  for (let index = 0; index < tabs; index++) {
+    await page.evaluate(markControls, TAB);
+    const label = await press(page, TAB, index, url);
+    if (label === null) continue;
+    await measureState(page, cdp, nodes, `tab:${label}`, tally);
+    await openDisclosures(page, cdp, nodes, tally, `tab:${label}`, url, async () => {
+      await reload();
+      await page.evaluate(markControls, TAB);
+      await press(page, TAB, index, url);
+    });
   }
 }
 
@@ -255,6 +312,16 @@ async function main() {
       const context = await browser.newContext({
         viewport: { width: viewport.width, height: viewport.height },
         ...(storageState ? { storageState } : {}),
+      });
+      /* `content-visibility: auto` skips layout for off-screen subtrees, and
+       * a node with no layout reports no face — a card list read as 139
+       * unread elements (2026-09 TuBrief `.video-card-item`). Face selection
+       * does not depend on it, so every subtree is laid out. An adopted sheet
+       * stays out of the DOM the framework hydrates. */
+      await context.addInitScript(() => {
+        const sheet = new CSSStyleSheet();
+        sheet.replaceSync("* { content-visibility: visible !important; }");
+        document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
       });
       for (const row of rows.filter((r) => capture.session(r) === session)) {
         for (const lang of fonts.locales) {
