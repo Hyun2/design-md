@@ -73,12 +73,25 @@ function scriptOf(ch) {
   return "Common";
 }
 
-/* Marks every visible text-bearing element with `data-fa` and returns its
- * record. Serialised into the page, so it must be self-contained. */
-function markTextNodes(allowedSelector) {
-  document.querySelectorAll("[data-fa]").forEach((e) => e.removeAttribute("data-fa"));
+/* Collects every visible text-bearing element into `window.__faEls` and
+ * returns its record. Nothing is written into the DOM: an editor that owns its
+ * subtree (ProseMirror on a post form) re-renders a node whose attributes
+ * change, and the node read next is gone. Serialised into the page, so it must
+ * be self-contained. */
+function collectTextNodes(allowedSelector) {
+  /* Text a sighted reader never sees: a screen-reader copy clipped to a
+   * pixel (KaTeX's MathML twin, `sr-only`). */
+  const clippedAway = (el) => {
+    for (let e = el; e && e !== document.body; e = e.parentElement) {
+      const cs = getComputedStyle(e);
+      const clipped = cs.clip.startsWith("rect(") || cs.clipPath === "inset(50%)";
+      const r = e.getBoundingClientRect();
+      if (clipped && r.width <= 1 && r.height <= 1) return true;
+    }
+    return false;
+  };
+  const els = [];
   const out = [];
-  let i = 0;
   for (const el of document.body.querySelectorAll("*")) {
     if (["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE"].includes(el.tagName)) continue;
     const text = [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.data).join("").trim();
@@ -86,46 +99,45 @@ function markTextNodes(allowedSelector) {
     const r = el.getBoundingClientRect();
     const cs = getComputedStyle(el);
     if (r.width === 0 || r.height === 0 || cs.visibility === "hidden" || cs.display === "none") continue;
-    el.setAttribute("data-fa", String(i));
+    if (clippedAway(el)) continue;
     const trail = [];
     for (let e = el; e && e !== document.body; e = e.parentElement) {
       trail.unshift(e.tagName + (e.parentElement ? [...e.parentElement.children].indexOf(e) : ""));
     }
     out.push({
-      i: i++,
+      i: els.length,
       text,
       path: trail.join(">"),
       fontFamily: cs.fontFamily,
       allowed: allowedSelector ? !!el.closest(allowedSelector) : false,
       cls: (el.getAttribute("class") ?? "").slice(0, 120),
     });
+    els.push(el);
   }
+  window.__faEls = els;
   return out;
 }
 
-/* Node ids stay valid only until the next `DOM.getDocument`, so the document
- * is fetched once per state and its root passed down. */
-async function nodeIdsBy(cdp, rootId, selector, attribute) {
-  const { nodeIds } = await cdp.send("DOM.querySelectorAll", { nodeId: rootId, selector });
-  const byKey = {};
-  for (const id of nodeIds) {
-    const { attributes } = await cdp.send("DOM.getAttributes", { nodeId: id });
-    byKey[attributes[attributes.indexOf(attribute) + 1]] = id;
-  }
-  return byKey;
+/* The CDP node id of a page object reached by `expression`, or null when the
+ * object is gone. Needs `DOM.getDocument` first in this state. */
+async function nodeIdOf(cdp, expression) {
+  const { result } = await cdp.send("Runtime.evaluate", { expression });
+  if (!result.objectId) return null;
+  const { nodeId } = await cdp.send("DOM.requestNode", { objectId: result.objectId });
+  return nodeId || null;
 }
 
 /* Split the element's direct text into one span per grapheme cluster, ask
  * each distinct cluster's face, restore the text. A cluster, not a code point:
  * a combining vowel sign (Devanagari U+093F) or a variation selector (U+FE0F)
  * split from its base lays out as nothing and reports no face. */
-async function perChar(page, cdp, rootId, idx) {
+async function perChar(page, cdp, idx) {
   const chars = await page.evaluate((idx) => {
-    const el = document.querySelector(`[data-fa="${idx}"]`);
+    const el = window.__faEls[idx];
     const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
     const seen = new Map();
     window.__faRestore = [];
-    let j = 0;
+    window.__faChars = [];
     for (const tn of [...el.childNodes].filter((n) => n.nodeType === 3)) {
       const frag = document.createDocumentFragment();
       const spans = [];
@@ -134,8 +146,8 @@ async function perChar(page, cdp, rootId, idx) {
         s.textContent = ch;
         if (!/^\s+$/.test(ch)) {
           if (!seen.has(ch)) {
-            seen.set(ch, { ch, count: 0, j });
-            s.setAttribute("data-fac", String(j++));
+            seen.set(ch, { ch, count: 0, j: window.__faChars.length });
+            window.__faChars.push(s);
           }
           seen.get(ch).count++;
         }
@@ -145,20 +157,15 @@ async function perChar(page, cdp, rootId, idx) {
       window.__faRestore.push([tn, spans]);
       tn.replaceWith(frag);
     }
-    /* Spans do not break shaping: `f` + `i` in two spans still shape as one
-     * ligature glyph, credited to `f`, and `i` reports no face. Ligatures
-     * choose glyphs within the face, never the face, so turning them off for
-     * the read changes nothing being measured. The spans also have no layout
-     * until something asks for it — a node with no layout reports no face. */
-    window.__faLigatures = el.style.fontVariantLigatures;
-    el.style.fontVariantLigatures = "none";
+    /* The spans have no layout until something asks for it, and a node with
+     * no layout reports no face. */
     void el.getBoundingClientRect();
     return [...seen.values()];
   }, idx);
-  const byJ = await nodeIdsBy(cdp, rootId, "[data-fac]", "data-fac");
   const result = [];
   for (const c of chars) {
-    const { fonts: faces } = await cdp.send("CSS.getPlatformFontsForNode", { nodeId: byJ[c.j] });
+    const nodeId = await nodeIdOf(cdp, `window.__faChars[${c.j}]`);
+    const { fonts: faces } = nodeId ? await cdp.send("CSS.getPlatformFontsForNode", { nodeId }) : { fonts: [] };
     /* A cluster can be drawn by two faces (an emoji and its selector); the
      * installed one is the one that matters. */
     const face = faces.find((f) => !f.isCustomFont) ?? faces[0];
@@ -172,8 +179,7 @@ async function perChar(page, cdp, rootId, idx) {
     });
   }
   await page.evaluate((idx) => {
-    const el = document.querySelector(`[data-fa="${idx}"]`);
-    el.style.fontVariantLigatures = window.__faLigatures;
+    const el = window.__faEls[idx];
     for (const [tn, spans] of window.__faRestore) {
       if (!spans.length) continue;
       spans[0].replaceWith(tn);
@@ -186,22 +192,22 @@ async function perChar(page, cdp, rootId, idx) {
 /* Read every text-bearing element not yet read in an earlier state. The key
  * carries the computed family, so a state that re-renders the same text in
  * another face is read again. A page still rendering (a player mounting, a
- * list streaming in) can drop a marked node between the mark and the read;
+ * list streaming in) can drop an element between collecting and reading it;
  * the state is read again after it settles, and a third miss is unread. */
 async function measureState(page, cdp, nodes, state, tally, attempt = 0) {
   try {
-    const records = await page.evaluate(markTextNodes, allowedSelector);
+    const records = await page.evaluate(collectTextNodes, allowedSelector);
     if (attempt === 0) tally.textElements += records.length;
-    const { root } = await cdp.send("DOM.getDocument", { depth: -1 });
-    const byIdx = await nodeIdsBy(cdp, root.nodeId, "[data-fa]", "data-fa");
+    await cdp.send("DOM.getDocument", { depth: -1 });
     for (const r of records) {
       const key = `${r.path}::${r.text}::${r.fontFamily}`;
       if (nodes.has(key)) continue;
-      if (byIdx[r.i] === undefined) throw new Error(`node left the document: ${r.path}`);
-      const { fonts: faces } = await cdp.send("CSS.getPlatformFontsForNode", { nodeId: byIdx[r.i] });
+      const nodeId = await nodeIdOf(cdp, `(e => e?.isConnected ? e : null)(window.__faEls[${r.i}])`);
+      if (nodeId === null) throw new Error(`node left the document: ${r.path}`);
+      const { fonts: faces } = await cdp.send("CSS.getPlatformFontsForNode", { nodeId });
       const record = { ...r, state, faces };
       if (faces.length === 0) tally.unread.push(`${state} ${r.path} "${r.text.slice(0, 40)}"`);
-      if (faces.some((f) => !f.isCustomFont)) record.chars = await perChar(page, cdp, root.nodeId, r.i);
+      if (faces.some((f) => !f.isCustomFont)) record.chars = await perChar(page, cdp, r.i);
       nodes.set(key, record);
     }
   } catch (error) {
@@ -325,14 +331,17 @@ async function main() {
         viewport: { width: viewport.width, height: viewport.height },
         ...(storageState ? { storageState } : {}),
       });
-      /* `content-visibility: auto` skips layout for off-screen subtrees, and
-       * a node with no layout reports no face — a card list read as 139
-       * unread elements (2026-09 TuBrief `.video-card-item`). Face selection
-       * does not depend on it, so every subtree is laid out. An adopted sheet
-       * stays out of the DOM the framework hydrates. */
+      /* Two properties that change what is read but never which face draws
+       * it, overridden page-wide by an adopted sheet — out of the DOM the
+       * framework hydrates and an editor watches:
+       *   - `content-visibility: auto` skips layout for off-screen subtrees,
+       *     and a node with no layout reports no face (a card list read as
+       *     139 unread elements, 2026-09 TuBrief `.video-card-item`).
+       *   - Ligatures: split into spans, `f` + `i` still shape as one glyph
+       *     credited to `f`, and `i` reports no face. */
       await context.addInitScript(() => {
         const sheet = new CSSStyleSheet();
-        sheet.replaceSync("* { content-visibility: visible !important; }");
+        sheet.replaceSync("* { content-visibility: visible !important; font-variant-ligatures: none !important; }");
         document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
       });
       for (const row of rows.filter((r) => capture.session(r) === session)) {
