@@ -68,6 +68,7 @@ library가 그 머신에 없어 공개 자료로 대체한 경우에도 판단 �
 | 8 | 캡처 후 defect를 **스스로 scan**해 목록을 붙여 제출 | STEP 5 |
 | 9 | 「Acceptance criteria」 표를 **comp 단계에서** 채움 | STEP 5 |
 | 10 | 기기는 **폭×높이 쌍**이다: 390×844 / 768×1024 / 1440×900 / 1920×1080(`measure-surface.mjs --devices`의 기본값과 같다). frame 안의 `100dvh`는 이 높이로 풀린다. preview 셸은 frame 하나를 **창 안에 통째로** 들어오게 축소하고, 스크롤은 frame 안에서만 일어난다 — 「fit check」가 판정한다. 판정 창은 owner의 화면을 옮긴 값이 아니라 셸의 축소·배치를 시험하는 조건이다 | STEP 5 |
+| 11 | 측정기가 여는 **모든 문서**(셸 · 각 frame · 운영 화면 · 매 reload)는 핸들러가 붙은 뒤 `<html>`에 `data-comp-ready`를 단다. `networkidle`은 hydration 완료가 아니다. 30초 안에 없으면 측정 실패로 run이 멈춘다 — 「못 쟀다」이지 결함 0이 아니다. TuBrief는 `app/root.tsx`가 development에서만 단다 | STEP 5 |
 
 9번이 핵심 장치다. ratio·surface layers·accent 면적·deletion test 실패가 owner가 고르기 전에
 드러나므로, owner는 "촌스럽다"를 설명할 필요 없이 실패한 comp를 반려하면 된다.
@@ -103,9 +104,10 @@ concept과 무관하게 **보이는 것을 누른다.** 이어진 라운드에�
 | 조작 | 텍스트 입력은 한 글자 입력, 나머지는 클릭. 반응이 있었던 대상 뒤에는 frame을 다시 로드한다 — 열린 popup이 다음 판정을 오염시키지 않게 |
 | 판정 | `document` 전체의 DOM 변경 · URL 변경 · 스크롤 중 하나라도 있으면 live. portal popup은 surface 루트 밖에 그려지므로 루트만 보면 놓친다. 텍스트 입력의 `value` 변화는 핸들러 없이도 생기므로 세지 않는다 |
 | 선택된 컨트롤 | **selected control**은 다시 눌러도 그대로인 것이 정상이므로, 첫 클릭에 변화가 없으면 frame을 다시 로드해 **같은 그룹의 선택되지 않은 형제**를 먼저 누르고 대상을 다시 판정한다(재시도). 그룹: tab → `tablist`, option → `listbox`, radio → `radiogroup` 또는 같은 `name`, menuitemradio → `menu`/`menubar`/`group`, `aria-current` → 다른 대상을 품은 가장 가까운 조상(3단 이내). 형제가 없으면 dead(`selected, no sibling to leave by`), 형제가 선택을 가져가지 않으면 dead, 형제가 페이지를 떠나면 면제(`sibling navigates away` — nav의 현재 항목). 결과는 전부 `operability.reselected`에 `via`(누른 형제)와 `verdict`(live · dead · exempt)로 실린다. 2026-09 TuBrief Reader 시안의 「요약」 탭이 핸들러가 있는데도 매 실행 dead로 exit 1을 내서, 다른 실패를 exit 코드로 판정할 수 없었다(#51) |
+| 재판정 | dead 판정, 그리고 문서가 같은 URL에서 통째로 바뀌었거나 frame이 떨어져 나간 live 판정은 frame을 다시 로드해 **한 번 더** 판정한다. 둘이 같으면 그 판정, 다르면 `operability.unstable`(첫째·둘째 판정)에 싣는다 — 결함도 통과도 아닌 측정 실패다. 2026-09 TuBrief #79에서 의존성을 아직 묶지 않은 dev 서버가 검사 도중 페이지를 새로 고쳐, 같은 commit이 live 컨트롤 2~4개를 한 번은 dead, 다음 실행은 live로 냈다. 한 번의 판정은 컨트롤과 환경을 가르지 못한다 |
 | 면제 | `data-comp-inert="<사유>"`(요소 또는 조상). 출력의 `operability.inert`가 곧 제출용 비동작 목록이다. 사유가 비면 dead |
 | popup의 world | live인 컨트롤이 연 popup이 surface 루트 **밖**에 있으면, 루트가 `<html>`과 다르게 해석하는 커스텀 프로퍼티 전부를 popup의 **컨테이너**(portal이 붙은 요소)에서 다시 읽어 루트 값과 비교한다. 하나라도 다르면 `operability.unscopedPopups`에 실린다. 토큰 이름은 스타일시트에서 모으므로 프로젝트 어휘를 쓰지 않는다. 컨테이너에서 읽는 이유: popup이 자기 위에서 토큰을 다시 가리키는 것은 정당한 scoped re-point다. 2026-09 TuBrief #39에서 C 열의 정렬 메뉴가 운영 팔레트와 글꼴로 떴다 |
-| 실패 | dead 1개 이상 · pageerror 1건 이상 · `unscopedPopups` 1건 이상 · `_provenance.dirty` 참(같은 commit의 JSON 측정 출력은 제외) → JSON은 끝까지 쓰고 exit 1 |
+| 실패 | dead 1개 이상 · `unstable` 1개 이상 · pageerror 1건 이상 · `unscopedPopups` 1건 이상 · `_provenance.dirty` 참(같은 commit의 JSON 측정 출력은 제외) → JSON은 끝까지 쓰고 exit 1 |
 
 **「마지막 쓰기 뒤」는 약속이 아니라 대조 가능한 사실이다.** 출력의 `_provenance`에 측정 시점의
 `commit`과 `dirty`, 그리고 제외한 경로의 `ignored`가 실린다. 현재 commit을 `_provenance.commit`에

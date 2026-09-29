@@ -42,7 +42,10 @@
  * error, a popup painted outside the surface's token scope, or an
  * uncommitted tree fails the run. Pass the URL the owner opens; a page
  * holding iframes (a preview shell) is measured and operated frame by frame,
- * each keyed `<label> / <iframe title>`.
+ * each keyed `<label> / <iframe title>`. A dead or replaced-in-place verdict
+ * is judged again on a fresh document, and disagreeing verdicts fail the run
+ * as `unstable`. Every document opened must declare `data-comp-ready`
+ * (Comp fidelity 11).
  *
  * With `--baseline`, the same run is also the correspondence check of
  * 「Comp fidelity conditions」 1 and 7: every control of the comp is paired
@@ -1035,6 +1038,7 @@ async function checkOperability(page, iframe, { collect = false, skip = () => fa
     if (!iframe) {
       await page.goto(home, { waitUntil: "networkidle" });
       frame = page.mainFrame();
+      await waitReady(frame);
       return;
     }
     const [next] = await Promise.all([
@@ -1043,6 +1047,7 @@ async function checkOperability(page, iframe, { collect = false, skip = () => fa
     ]);
     frame = next;
     await frame.waitForLoadState("networkidle");
+    await waitReady(frame);
   };
   let targets;
   let kindLayout = null;
@@ -1058,7 +1063,7 @@ async function checkOperability(page, iframe, { collect = false, skip = () => fa
   } else {
     targets = await frame.evaluate(`(${TARGETS})()`);
   }
-  const report = { checked: 0, live: [], kinds: [], dead: [], inert: [], errors: [], reselected: [], unscopedPopups: [] };
+  const report = { checked: 0, live: [], kinds: [], dead: [], unstable: [], inert: [], errors: [], reselected: [], unscopedPopups: [] };
   // A selected target that did not answer is pressed again from outside its
   // state: reload, press its sibling, then press it. true when it answered,
   // "exempt" when the sibling left the page, otherwise the reason it is dead.
@@ -1086,8 +1091,27 @@ async function checkOperability(page, iframe, { collect = false, skip = () => fa
       via,
       verdict: operated.verdict === NO_CHANGE ? `${NO_CHANGE}, even after leaving by ${via}` : operated.verdict,
       kind: operated.kind,
+      replaced: operated.replaced ?? false,
     };
   };
+  // One judgement of one target. A selected target that did not answer is
+  // pressed again from outside its state.
+  const judge = async (index, target) => {
+    const handle = (await frame.evaluateHandle(TARGET_AT(index))).asElement();
+    const operated = handle ? await operate(frame, handle, target) : { verdict: "target list shifted", kind: null };
+    if (operated.verdict !== NO_CHANGE || !target.selected) {
+      return { ...operated, outcome: operated.verdict === true ? "live" : "dead", reselected: null };
+    }
+    const again = await reselect(index, target);
+    const outcome = again.verdict === true ? "live" : again.verdict === "exempt" ? "exempt" : "dead";
+    const reselected = { name: target.name, via: again.via ?? null, verdict: outcome,
+      ...(again.reason ? { reason: again.reason } : {}) };
+    // A dead or exempt verdict leaves the sibling's state behind.
+    if (again.verdict !== true) await reload();
+    return { verdict: again.verdict, kind: again.kind ?? null, replaced: again.replaced ?? false, outcome, reselected };
+  };
+  const describe = (judged) => judged.outcome === "dead" ? `dead (${judged.verdict})`
+    : judged.replaced ? "live (document replaced in place)" : judged.outcome;
   const inventory = collect ? await frame.evaluate(`(${INVENTORY})()`) : null;
   for (const [index, target] of targets.entries()) {
     if (skip(inventory?.controls[index])) continue;
@@ -1098,21 +1122,26 @@ async function checkOperability(page, iframe, { collect = false, skip = () => fa
     }
     report.checked += 1;
     try {
-      const handle = (await frame.evaluateHandle(TARGET_AT(index))).asElement();
-      let operated = handle ? await operate(frame, handle, target) : { verdict: "target list shifted", kind: null };
-      if (operated.verdict === NO_CHANGE && target.selected) {
-        const again = await reselect(index, target);
-        report.reselected.push({ name: target.name, via: again.via ?? null,
-          verdict: again.verdict === true ? "live" : again.verdict === "exempt" ? "exempt" : "dead",
-          ...(again.reason ? { reason: again.reason } : {}) });
-        // A dead or exempt verdict leaves the sibling's state behind.
-        if (again.verdict !== true) await reload();
-        if (again.verdict === "exempt") continue;
-        operated = { verdict: again.verdict, kind: again.kind ?? null };
+      let judged = await judge(index, target);
+      // A dead verdict, or a live one whose document was replaced where it
+      // stood, can be the environment's rather than the control's: judge it
+      // once more on a fresh document. Two verdicts that disagree are an
+      // unstable measurement — neither a defect nor a pass (tubrief-v2 #79).
+      if (judged.outcome === "dead" || judged.replaced) {
+        await reload();
+        const second = await judge(index, target);
+        if (second.outcome !== judged.outcome) {
+          report.unstable.push({ name: target.name, first: describe(judged), second: describe(second) });
+          await reload();
+          continue;
+        }
+        judged = second;
       }
-      if (operated.verdict === true) {
+      if (judged.reselected) report.reselected.push(judged.reselected);
+      if (judged.outcome === "exempt") continue;
+      if (judged.outcome === "live") {
         report.live.push(target.name);
-        if (operated.kind) report.kinds.push({ index, name: target.name, kind: operated.kind });
+        if (judged.kind) report.kinds.push({ index, name: target.name, kind: judged.kind });
         if (collect || scope !== null) {
           try {
             if (collect) {
@@ -1131,9 +1160,10 @@ async function checkOperability(page, iframe, { collect = false, skip = () => fa
         // A popup or filter left open would decide the next target's verdict.
         await reload();
       } else {
-        report.dead.push({ name: target.name, reason: operated.verdict });
+        report.dead.push({ name: target.name, reason: judged.verdict });
       }
     } catch (error) {
+      if (error instanceof NotReady) throw error;
       // The check itself broke, which says nothing about the control.
       report.errors.push({ name: target.name, error: String(error.message).split("\n")[0] });
       await reload();
@@ -1145,6 +1175,17 @@ async function checkOperability(page, iframe, { collect = false, skip = () => fa
 }
 
 const NO_CHANGE = "no DOM, URL or scroll change";
+
+// REFERENCE.md Comp fidelity 11: `networkidle` is not "handlers attached".
+const READY_MS = 30000;
+class NotReady extends Error {}
+async function waitReady(frame) {
+  try {
+    await frame.waitForFunction(() => document.documentElement.hasAttribute("data-comp-ready"), null, { timeout: READY_MS });
+  } catch {
+    throw new NotReady(`${frame.url()} did not declare data-comp-ready within ${READY_MS / 1000}s`);
+  }
+}
 
 // true when the surface responded, otherwise the reason it is dead.
 async function operate(frame, handle, target) {
@@ -1172,18 +1213,27 @@ async function operate(frame, handle, target) {
     return { verdict: state.changed ? true : NO_CHANGE, kind: state.kind };
   } catch {
     // The execution context or the frame went away; its URL tells which page it left for.
+    // A document swapped in before the read lands here too: OPERATION_STATE
+    // reads `__opUrl`, which only ARM's document holds. Swapped at the same
+    // URL, or a frame detached, it was the control (a link to the page itself,
+    // a page that refuses framing) or something else (a dev server reloading
+    // the frame or its shell); one verdict cannot tell, so it is `replaced`.
     let kind = "setting";
+    let replaced = false;
     try {
       const before = new URL(startUrl);
       const after = new URL(frame.url());
       if (after.pathname !== before.pathname) kind = "leave";
       else if (after.search !== before.search) kind = "setting";
       else if (after.hash !== before.hash) kind = "in-page";
-      else if (frame.isDetached()) kind = "leave";
+      else if (frame.isDetached()) {
+        kind = "leave";
+        replaced = true;
+      } else replaced = true;
     } catch {
       kind = "leave";
     }
-    return { verdict: true, kind };
+    return { verdict: true, kind, replaced };
   }
 }
 
@@ -1262,6 +1312,7 @@ async function baselinePage(browser, url, width, heightPx) {
   if (!baselineCache.has(key)) {
     const page = await browser.newPage({ viewport: { width, height: heightPx } });
     await page.goto(url, { waitUntil: "networkidle" });
+    await waitReady(page.mainFrame());
     baselineCache.set(key, { page, inventory: null, tokens: null });
   }
   return baselineCache.get(key);
@@ -1334,6 +1385,15 @@ async function main() {
   const browser = await chromium.launch();
   const out = { _provenance: origin };
   const failed = [];
+  // Errors are collected across the whole page and its frames, and a module
+  // that failed to load leaves every handler dead. Also closed out when a
+  // document that never declared ready stops the run midway.
+  let open = null;
+  const closePage = () => {
+    for (const key of open.pageKeys) out[key].operability.pageErrors = [...open.pageErrors];
+    for (const error of open.pageErrors) failed.push(`${open.label}: page error ${error}`);
+    open = null;
+  };
   try {
     for (const [index, url] of urls.entries()) {
       const label = labels[index] ?? url;
@@ -1341,10 +1401,14 @@ async function main() {
       // A Set: the frame reloads after every live control and repeats its errors.
       const pageErrors = new Set();
       page.on("pageerror", (error) => pageErrors.add(String(error.message).split("\n")[0]));
+      const pageKeys = [];
+      open = { label, pageErrors, pageKeys };
       await page.goto(url, { waitUntil: "networkidle" });
+      await waitReady(page.mainFrame());
       // The URL the owner opens. A preview shell holds the surface in frames,
       // and a frame is measured as the device it is sized to be.
       const children = page.mainFrame().childFrames();
+      for (const child of children) await waitReady(child);
       const iframes = children.length > 0 ? await Promise.all(children.map((f) => f.frameElement())) : [null];
       // Fit check, before any control moves the shell's scroll or reloads a frame.
       const win = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
@@ -1364,7 +1428,6 @@ async function main() {
           inWindow,
         });
       }
-      const pageKeys = [];
       for (const [frameIndex, iframe] of iframes.entries()) {
         let frame = iframe ? await iframe.contentFrame() : page.mainFrame();
         const title = iframe ? await iframe.getAttribute("title") : null;
@@ -1436,6 +1499,7 @@ async function main() {
         console.log(key, JSON.stringify(result));
         if (result.measurementFailed || result.colorRead.unread > 0) failed.push(`${key}: unread colour values or no kernel`);
         for (const dead of result.operability.dead) failed.push(`${key}: dead control ${dead.name} (${dead.reason})`);
+        for (const u of result.operability.unstable) failed.push(`${key}: unstable control ${u.name} (${u.first}, then ${u.second}) — the environment changed under the check; measure again`);
         for (const broke of result.operability.errors) failed.push(`${key}: check error on ${broke.name} (${broke.error})`);
         if (result.accent?.error) failed.push(`${key}: ${result.accent.error}`);
         for (const defect of result.relational?.defects ?? []) failed.push(`${key}: ${defect}`);
@@ -1445,12 +1509,13 @@ async function main() {
           failed.push(`${key}: popup "${p.popup}" opened by ${p.control} is outside the surface's token scope (${p.differs} tokens differ, e.g. ${first.name} ${cut(first.surface)} → ${cut(first.popup)})`);
         }
       }
-      // Errors are collected across the whole page and its frames, and a
-      // module that failed to load leaves every handler dead.
-      for (const key of pageKeys) out[key].operability.pageErrors = [...pageErrors];
-      for (const error of pageErrors) failed.push(`${label}: page error ${error}`);
+      closePage();
       await page.close();
     }
+  } catch (error) {
+    if (!(error instanceof NotReady)) throw error;
+    if (open) closePage();
+    failed.push(`not measured from here on: ${error.message}`);
   } finally {
     await browser.close();
   }
