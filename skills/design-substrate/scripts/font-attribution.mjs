@@ -55,7 +55,8 @@ const mode = flag("mode") ?? "before";
 const base = flag("base") ?? capture.base;
 const outRoot = flag("out") ?? capture.out;
 const only = flag("only") ?? "";
-/* A glyph's face does not depend on the theme; one theme is read. */
+/* One theme is read: faces follow the theme only where a theme scope declares
+ * fonts, and such a project runs once per theme (SKILL.md 「실행 수단」). */
 const theme = fonts.theme ?? capture.themes[0];
 const allowedScripts = new Set(fonts.installedAllowed.scripts ?? []);
 const allowedSelector = fonts.installedAllowed.selector ?? null;

@@ -188,8 +188,10 @@ S1에서 세션이 끊기므로 **다음 세션은 대화가 아니라 파일을
   `url(row, { base, lang, theme }, setup)` · 선택 `stateTargets`(기준 4 대상 이름 → selector, 기본은 어댑터).
 - `fonts` — `locales`(출하하는 전 locale) · `installedAllowed`(OS face가 그려도 되는 글자: `scripts`는
   `Han` · `Hiragana` · `Katakana` · `CJK-punct` · `Emoji` 등 문자 분류 이름, `selector`는 그 조상 안의
-  글자 전부. 근거는 권위 문서의 행) · 선택 `theme`(기본은 `capture.themes`의 첫째 — face는 theme과
-  무관하다). 행 · viewport · URL은 `capture`의 것을 그대로 쓴다.
+  글자 전부. 근거는 권위 문서의 행) · 선택 `theme`(기본은 `capture.themes`의 첫째). 한 theme으로 재는
+  근거는 theme 스코프가 글꼴(`font-family` · `--font-*` · `@font-face`)을 선언하지 않는다는 것이다 —
+  선언하는 프로젝트는 theme마다 `theme`과 `--out`을 바꿔 한 번씩 돌린다. 행 · viewport · URL은
+  `capture`의 것을 그대로 쓴다.
 
 호출부가 URL을 만들어 넘기는 일 이상을 하거나, 프로젝트 `scripts/`에 판정 코드가 생기면 결함이다.
 ledger의 asset 행은 이 SKILL 안의 스크립트만 잡는 장치로 받는다(`design-loop` 「asset의 경계」).
