@@ -16,8 +16,8 @@
 5. **하드코딩이 숨는 자리** — STEP 1이 grep해야 할 곳.
 6. **없는 토큰을 가리키면 어떻게 실패하는가** — 오류인가, 아무것도 만들지 않는가, 문자열이 그대로
    값으로 통과하는가, **라이브러리 자신의 기본값으로 해석되는가**. 그리고 **라이브러리 자신에게 "이
-   참조가 무엇을 만드는가"를 묻는 방법**. 끊긴 참조와 라이브러리 기본값 참조(STEP 1 목록 5·6)는 소스
-   철자로는 멀쩡해 보이므로, 판정은 이 답으로만 한다.
+   참조가 무엇을 만드는가"를 묻는 방법**. 끊긴 참조 · 라이브러리 기본값 참조 · 반투명 포커스 표시(STEP 1
+   목록 5·6·7)는 소스 철자로는 가려지지 않으므로, 판정은 이 답으로만 한다.
 
 값의 정확한 목록은 라이브러리 버전과 함께 움직인다. **아래 토큰 이름은 출발점이고, 프로젝트가
 실제로 선언한 것이 권위다** — STEP 1은 항상 저장소에서 전수 수집한다.
@@ -69,6 +69,12 @@ v4는 `@theme`이 그 값을 유틸리티 이름으로 노출한다.
 판정은 `candidatesToCss`가 돌려준 CSS가 읽는 변수를 그 시트만 선언하고 프로젝트는 선언하지 않았는지로
 한다. world가 소유하는 축은 어댑터의 `WORLD_OWNED_NAMESPACES`이고 지금은 글꼴 family(`font`)
 하나다. VERIFIED(tailwindcss 4.2.0 · TuBrief detector · 2026-09-29 · `font-mono` 3곳, 오탐 0).
+
+**포커스 표시 색.** 클래스를 변형째 `candidatesToCss`에 넣으면 포커스 변형(`focus-visible:` ·
+`focus-within:` · `has-[…:focus-visible]:` …)은 `:focus*` 선택자로, α 표기 `/50`은
+`color-mix(in oklab, var(--ring) 50%, transparent)`로 나온다. 색을 싣는 선언은 `--tw-ring-color` ·
+`--tw-inset-ring-color` · `--tw-shadow-color` · `outline-color` · `border-*-color`다(어댑터
+`INDICATOR_COLOR`). VERIFIED(tailwindcss 4.2.0 · TuBrief detector · 2026-09-29 · `d7ad85b` 26건, HEAD 오탐 0).
 
 **코드.** 이 절의 답은 [`scripts/adapters/tailwind.mjs`](scripts/adapters/tailwind.mjs)에 있다.
 MUI · Chakra는 아직 코드가 없다 — 첫 적용이 이 절의 답을 확인하면서 같은 모양의 어댑터 파일을 추가한다.

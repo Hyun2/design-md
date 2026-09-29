@@ -1,5 +1,5 @@
 /**
- * The substrate detector: the six defect lists of `design-substrate` STEP 1,
+ * The substrate detector: the defect lists of `design-substrate` STEP 1,
  * found by machine so STEP 7 can keep finding them.
  *
  *   node ~/.agents/skills/design-substrate/scripts/detect.mjs --config <file>            # summary + exit code
@@ -19,11 +19,13 @@
  * 5. dangling     — a utility or `var()` that names a token nothing declares
  * 6. library-default — a utility in a world-owned namespace that resolves to
  *                   a value only the library's own sheet declares
+ * 7. translucent-focus — a focus indicator colour below alpha 1, whose
+ *                   contrast changes with whatever ground it lands on
  *
  * Scope is every file that renders, dev-only preview code included: a comp
  * preview was once left out, and a token the substrate pass deleted went on
  * painting nothing there for a whole round. A file leaves the scope only
- * through `danglingExempt`, with its reason.
+ * through `utilityExempt`, with its reason.
  *
  * What the library knows — which utility reads which token, how a radius step
  * resolves, whether a class compiles — is the adapter's (`adapters/<name>.mjs`),
@@ -52,7 +54,7 @@ async function main() {
     stylesheetBase = ".",
     declarationSheets = [],
     runtimeOwned = [],
-    danglingExempt = [],
+    utilityExempt = [],
     vocabularies = {},
     deferred = [],
   } = config.detect;
@@ -193,7 +195,7 @@ async function main() {
     for (const { body, at } of adapter.classStrings(file, text)) {
       for (const m of body.matchAll(adapter.TOKEN_UTILITY)) {
         const utility = m[1];
-        if (danglingExempt.some((e) => e.file === file && e.text === utility)) continue;
+        if (utilityExempt.some((e) => e.file === file && e.text === m[0])) continue;
         const line = text.slice(0, at + (m.index ?? 0)).split("\n").length;
         const list = utilityHits.get(utility) ?? [];
         list.push(`${file}:${line}`);
@@ -255,6 +257,46 @@ async function main() {
         kind: "library-default",
         where,
         what: `${utility} — ${foreign.join(", ")}를 라이브러리 시트만 선언한다 (world가 선언하지 않은 값)`,
+      });
+    }
+  });
+
+  /* 7. translucent focus indicators. Composited contrast depends on the
+   * ground, so a render sample that passes on one rung proves nothing about
+   * the next (dark --ring at alpha 0.5: 3.43 on the page, 2.96 on a popover).
+   * The whole class is compiled, variants included, so the generated CSS says
+   * whether it paints on focus whatever the variant's spelling: an indicator
+   * colour under a `:focus*` selector, or an outline colour with no variant —
+   * an outline paints only once focus gives it a style. */
+  const indicatorHits = new Map();
+  for (const file of renderedFiles) {
+    const text = stripComments(renderedText[file]);
+    for (const { body, at } of adapter.classStrings(file, text)) {
+      for (const { cls, index } of adapter.indicatorClasses(body)) {
+        if (utilityExempt.some((e) => e.file === file && e.text === cls)) continue;
+        const line = text.slice(0, at + index).split("\n").length;
+        const list = indicatorHits.get(cls) ?? [];
+        list.push(`${file}:${line}`);
+        indicatorHits.set(cls, list);
+      }
+    }
+  }
+  const translucent = (value) =>
+    /\btransparent\b/.test(value) ||
+    [...value.matchAll(/\/\s*([\d.]+)(%?)\s*\)/g)].some((m) => Number(m[1]) / (m[2] ? 100 : 1) < 1);
+  const indicatorClasses = [...indicatorHits.keys()];
+  compiles(indicatorClasses).forEach((cssText, i) => {
+    if (!cssText) return;
+    const focus = cssText.includes(":focus");
+    const hit = [...cssText.matchAll(adapter.INDICATOR_COLOR)].find(
+      ([, property, value]) => (focus || property === "outline-color") && translucent(value),
+    );
+    if (!hit) return;
+    for (const where of indicatorHits.get(indicatorClasses[i])) {
+      findings.push({
+        kind: "translucent-focus",
+        where,
+        what: `${indicatorClasses[i]} — 포커스 표시 색(${hit[1]})이 반투명이다. 합성 대비가 바탕마다 달라 한 표본의 통과가 보증이 되지 않는다`,
       });
     }
   });

@@ -166,7 +166,7 @@ S1에서 세션이 끊기므로 **다음 세션은 대화가 아니라 파일을
 
 | 스크립트 | STEP | 하는 일 |
 |---|---|---|
-| [`scripts/detect.mjs`](scripts/detect.mjs) | 1 · 7 · 8 | 여섯 결함 목록 탐지 + 이월 목록 출력. findings가 있으면 exit 1 |
+| [`scripts/detect.mjs`](scripts/detect.mjs) | 1 · 7 · 8 | STEP 1 결함 목록 탐지 + 이월 목록 출력. findings가 있으면 exit 1 |
 | [`scripts/capture.mjs`](scripts/capture.mjs) | 1 · 5 | manifest 행마다 캡처와 기준 2·3·4 측정. 측정 실패 또는 4b 미달이면 exit 1 |
 | [`scripts/font-attribution.mjs`](scripts/font-attribution.mjs) | 1 · 5 | 출하 locale × manifest 행 × viewport마다 글리프를 그린 face(STEP 5 항목 6). 허용 밖 OS 글리프가 있거나 측정 실패면 exit 1 |
 | [`scripts/adapters/<라이브러리>.mjs`](scripts/adapters/tailwind.mjs) | — | [`ADAPTERS.md`](ADAPTERS.md) 여섯 질문의 답을 코드로. 목록에 없는 라이브러리는 새 어댑터 파일을 이 SKILL에 추가한다 |
@@ -179,7 +179,8 @@ S1에서 세션이 끊기므로 **다음 세션은 대화가 아니라 파일을
 - `detect` — `tokensFile`(토큰 선언 시트) · `sources`(렌더되는 모든 파일의 git glob, 시안 포함) ·
   `primitives`(primitive 파일 glob) · `designDoc`(권위 문서) · `stylesheetBase` ·
   `declarationSheets`(선언을 인정할 `node_modules` 시트) · `runtimeOwned`(라이브러리가 런타임에 쓰는
-  변수) · `danglingExempt`(파일·문자열·사유) · `vocabularies`(어휘 이름 → 토큰 목록) ·
+  변수) · `utilityExempt`(파일 · 쓰인 그대로의 클래스 문자열 · 사유 — 목록 5·6·7이 그 파일의 그 문자열을
+  건너뛴다) · `vocabularies`(어휘 이름 → 토큰 목록) ·
   `deferred`(이월 목록: `what · measured · threshold · authority · carriedTo`).
 - `capture` — `rows`(각 행 `id · container · smoke`와 그 밖의 서술 필드) · `themes` · `viewports`
   (`name · width · height`) · `lang` · `base` · `out` · `statesAt`(state를 재는 viewport 이름) ·
@@ -237,7 +238,7 @@ world의 출처를 확정한다. **권위 문서가 있다는 사실이 world가
 |---|---|---|---|---|
 | 면 색 · 글자색 · 반경 · 테두리 · 그림자 · 강조색 · 타입 램프 · 간격 | … | … | … | … |
 
-그리고 여섯 가지를 따로 목록화한다. **이 여섯 범위가 STEP 7 detector의 범위이기도 하다.**
+그리고 아래 결함 목록을 따로 작성한다. **이 목록이 STEP 7 detector의 범위이기도 하다.**
 
 **스캔 범위는 렌더되는 모든 코드다** — 출하 화면, primitive, 그리고 시안·preview·개발 전용 라우트까지.
 제외는 파일과 사유를 적은 목록으로만 한다. 이 정의 하나를 STEP 1 · STEP 7 · STEP 8이 같이 쓴다.
@@ -268,6 +269,13 @@ world의 출처를 확정한다. **권위 문서가 있다는 사실이 world가
    같이 라이브러리가 만든 CSS가 읽는 변수로 하고, 어느 축을 world가 소유하는지는 어댑터가 적는다.
    축은 결함이 관찰될 때 하나씩 늘린다 — 간격·글자 크기처럼 라이브러리 기본값을 의도해서 쓰는 축에
    걸면 출력이 의미를 잃는다.
+7. **반투명 포커스 표시(translucent focus indicator)** — **포커스 표시**(「용어」)를 칠하는 링 · outline ·
+   테두리 · 그림자 색의 α가 1보다 작은 곳. 합성 대비는 그 색이 놓인 바탕마다 다르므로, 렌더 표본
+   하나가 4b를 통과해도 다른 바탕에서는 떨어진다(2026-09 TuBrief dark `--ring` α 0.5: 기본 바탕 3.43,
+   popover 2.96. 76표본에 popover 위 포커스 대상이 없어 통과로 보고됐다). 그래서 대비를 계산하지 않고
+   α < 1이면 결함이다. 대상은 포커스 변형이 붙은 클래스, 그리고 변형 없는 outline 색이다 — outline은
+   포커스가 style을 줄 때만 칠해진다(TuBrief 기본층 `* { @apply outline-ring/50 }`). 판정은 목록 5와
+   같이 클래스를 변형째 라이브러리에 컴파일시켜, 만든 CSS의 선택자와 색 선언으로 한다.
 
 **기준선을 지금 뜬다.** STEP 3이 값을 바꾸기 전에 재현 가능한 before를 확보한다. 라우터에서
 **전 화면**을 뽑아 manifest를 만들고(화면이 20개를 넘으면 표본안을 S1 제출물에 넣되, 승인
@@ -297,7 +305,7 @@ selector로**, **스모크 흐름을 시작 상태 · 동작 · 기대 결과로
 아니라 **측정 실패**이고 기준선으로 쓸 수 없다.
 
 **완료 조건:** ⓐ 8개 속성 전부가 표에 있고, 권위 수 2 이상인 행마다 두 어휘의 토큰 이름과 값이
-나란히 적혔다 ⓑ split-brain · dead token · 하드코딩 · drift · 끊긴 참조 · 라이브러리 기본값 참조 여섯 목록이 파일·행 번호와 함께
+나란히 적혔다 ⓑ 위 결함 목록 전부가 파일·행 번호와 함께
 작성됐고 개수가 수치로 보고됐다. 반경은 리터럴 수와 해석된 값의 단 수를 따로 적었다 ⓒ manifest에 라우터에서 뽑은 전 화면과 조건부 상태가 들어 있고, **각 행마다** 모든
 출하 theme × viewport 2개 캡처 · 측정 컨테이너 selector · 스모크 흐름 · STEP 5 항목 2·3·4의
 before 수치, 그리고 출하 locale 전부 × viewport 2개의 항목 6 before 수치가 있다 ⓓ 렌더하지 못한 행은 blocker로 표시됐다 ⓔ 모든 행의 측정 출력에 읽지 못한
@@ -365,7 +373,7 @@ manifest를 그대로 다시 돌린다 — 같은 행, 같은 theme, 같은 view
 | 2 | 텍스트 대비 | 모든 텍스트/배경 쌍이 WCAG AA(본문 4.5:1, large 3:1). before에서 이미 실패한 쌍은 before 값 이상 |
 | 3 | 레이아웃 보존 | manifest가 지정한 컨테이너의 bounding box 폭·높이 변화 ±2% 이내, 문서 세로 길이 변화 ±5% 이내, 신규 가로 overflow 0 |
 | 4a | state 구분 — 면 | hover · selected · disabled가 각 primitive에서 바탕 대비 **면의** ΔL ≥ 0.06으로 구분된다 |
-| 4b | state 구분 — focus | **포커스 표시**(「용어」 — focus가 idle에 비해 새로 칠하거나 바꾼 층)가 있고, 그 층이 **인접 바탕 대비 ≥ 3:1**(WCAG 2.2 SC 1.4.11 non-text contrast)이며 두께가 0보다 크다. idle에도 있는 색은 통과 근거가 아니다. 판정은 커널 `focusIndicator`(「실행 수단」) |
+| 4b | state 구분 — focus | **포커스 표시**(「용어」 — focus가 idle에 비해 새로 칠하거나 바꾼 층)가 있고, 그 층이 **인접 바탕 대비 ≥ 3:1**(WCAG 2.2 SC 1.4.11 non-text contrast)이며 두께가 0보다 크다. idle에도 있는 색은 통과 근거가 아니다. 판정은 커널 `focusIndicator`(「실행 수단」). 반투명 포커스 표시는 표본 바탕에서 통과해도 결함이다 — STEP 1 목록 7 |
 | 5 | 기능 보존 | manifest의 스모크 흐름 전부가 기대 결과에 도달 |
 | 6 | 렌더 폰트 귀속 | 출하 locale 전부 × viewport 2개에서 OS face(페이지가 싣지 않은 face)가 그린 글리프가 설정 `installedAllowed` 밖에 0개. 기본 상태만이 아니라 보이는 탭을 하나씩 고르고 닫힌 disclosure(`[aria-expanded="false"][aria-controls]`)를 하나씩 연 상태까지 센다 — 닫힌 자막 패널 안의 1,848 글리프가 기본 상태에서 0으로 읽혔다. 문자는 Unicode Script가 아니라 블록으로 가른다(`ー` U+30FC는 Script=Common인 가나 부호) |
 
@@ -414,18 +422,10 @@ signal 면 토큰)가 존재함이 확인됐다.
 
 ## STEP 7 — detector 등록
 
-STEP 1이 손으로 찾은 것을 기계가 다시 찾게 만든다. **탐지 범위는 STEP 1과 같다** — 범위가
-갈라지면 STEP 1이 결함으로 센 것이 다음 커밋부터 조용히 들어온다.
-
-1. dead token — 색만이 아니라 반경·간격·타입 토큰까지
-2. primitive 소스에 남은 하드코딩 색·반경·테두리·그림자 리터럴, 그리고 반경의 해석된 값 단 수
-3. split-brain — 같은 속성을 결정하는 토큰 접두사가 2개 이상
-4. drift — 권위 문서의 반경·면 정책과 primitive 실제 값의 불일치
-5. 끊긴 참조 — 라이브러리가 아무것도 만들지 않는 유틸리티·토큰 키, 선언 없는 변수 참조
-6. 라이브러리 기본값 참조 — world가 소유한 축(어댑터 `WORLD_OWNED_NAMESPACES`)에서 라이브러리 기본 시트만 선언한 값으로 해석되는 유틸리티
-
-스캔 범위는 STEP 1의 정의 그대로다. **스캔 대상에서 디렉터리를 빼는 코드가 detector에 있으면
-그 자체가 결함이다** — 제외는 파일·사유 목록으로만 하고, 목록은 실행마다 읽힌다.
+STEP 1이 손으로 찾은 것을 기계가 다시 찾게 만든다. **탐지 범위는 STEP 1의 결함 목록 전부와 스캔
+범위 그대로다** — 범위가 갈라지면 STEP 1이 결함으로 센 것이 다음 커밋부터 조용히 들어온다.
+**스캔 대상에서 디렉터리를 빼는 코드가 detector에 있으면 그 자체가 결함이다** — 제외는 파일·사유
+목록으로만 하고, 목록은 실행마다 읽힌다.
 
 **규칙의 source of truth는 이 SKILL의 [`scripts/detect.mjs`](scripts/detect.mjs)다**(「실행 수단」).
 프로젝트는 설정 파일에 탐지 범위 · 제외 목록 · 이월 목록만 적는다. 훅 도구가 있으면 그 스크립트를
@@ -434,7 +434,7 @@ STEP 1이 손으로 찾은 것을 기계가 다시 찾게 만든다. **탐지 �
 건너뛰면 규칙이 설치가 없는 머신에서 조용히 사라진다.
 
 **완료 조건:** 설정 파일이 저장소에 있고, 그 설정으로 `detect.mjs`를 현재 코드에 대해 실행한 findings
-0건 출력이 보고에 인용됐다. 예외 요청 중 `unfixable` 승인 항목은 제외 목록에 사유와 함께, `out-of-authority`
+0건 출력이 보고에 인용됐다. 예외 요청 중 `unfixable` 승인 항목은 **제외 목록**(설정의 `utilityExempt`)에 사유와 함께, `out-of-authority`
 중 ⓑ 이월 · ⓒ 출하 항목은 **이월 목록**(설정의 `deferred`)에 `측정 · 임계 · 권위 · 이월처`와 함께 등록한다. 이월
 목록은 **매 실행마다 출력되고 종료 코드에는 영향을 주지 않는다** — 문서에만 적힌 이월은 곧
 기억되지 않는다. pre-commit 또는 CI 중 **하나가 실제로 그 스크립트를 호출하고 있고**(SKILL이 없으면

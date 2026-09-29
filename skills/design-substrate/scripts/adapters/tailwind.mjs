@@ -147,6 +147,35 @@ export function classStrings(file, text) {
       }));
 }
 
+/* The utility a class ends in, past its variants: the last `:` outside
+ * brackets, so `has-[[data-slot=x]:focus-visible]:ring-ring/50` ends in
+ * `ring-ring/50`. */
+function baseUtility(cls) {
+  let depth = 0;
+  let cut = 0;
+  for (let i = 0; i < cls.length; i += 1) {
+    if (cls[i] === "[" || cls[i] === "(") depth += 1;
+    else if (cls[i] === "]" || cls[i] === ")") depth -= 1;
+    else if (cls[i] === ":" && depth === 0) cut = i + 1;
+  }
+  return cls.slice(cut);
+}
+
+/**
+ * Focus indicators (STEP 1 list 7): every class as written, variants
+ * included, that ends in a ring, outline, border or shadow utility. The
+ * variant is what decides whether it paints on focus, so it stays attached.
+ */
+export function indicatorClasses(body) {
+  return [...body.matchAll(/\S+/g)]
+    .filter((m) => /^!?-?(?:inset-ring|ring|outline|border|shadow)-/.test(baseUtility(m[0])))
+    .map((m) => ({ cls: m[0], index: m.index }));
+}
+
+/** The declarations that colour a focus indicator in the CSS Tailwind generates. */
+export const INDICATOR_COLOR =
+  /(--tw-(?:inset-)?ring-color|--tw-shadow-color|outline-color|border(?:-[a-z]+)?-color)\s*:\s*([^;]+);/g;
+
 /**
  * Question 6: does this utility generate anything? The answer comes from
  * Tailwind itself — a missing `--color-*` registration is not an error there,
