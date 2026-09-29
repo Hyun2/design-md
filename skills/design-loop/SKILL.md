@@ -111,9 +111,20 @@ STEP 1의 7번이 개정 후보를 남겼거나 이 단계에서 기존 rule이 
 문장을 무엇으로 바꾸는지, 그 변경이 다른 rule·component에 미치는 파급을 적는다. world를
 통째로 바꾸는 안도 여기서 제시한다 — rule 개정은 G1의 결정이고, STEP 5에서는 다룰 수 없다.
 
+amendment는 문장과 함께 **규칙이 바꾸는 토큰 목록**(토큰 이름 · theme별 before → after)을 싣는다.
+owner에게 묻는 질문은 규칙이 닿는 범위보다 좁게 쓰이기 쉽다 — 2026-09 TuBrief(tubrief-v2 #33)의
+1라운드는 「배경 단」만 물었는데 규칙 문장은 「모든 neutral」이라 글자색까지 바꿨고, 범위 확인이
+2라운드로 넘어갔다.
+
+제안하는 값이 판정 기준을 가진 수치(ΔL · 대비 등)를 움직이면 **렌더해서 잰 값**을 함께 싣고, 실측이
+기준을 넘는 값만 제안한다. 렌더할 화면이 없어 계산만 했으면 「추정」으로 적어 제안하고, 첫 렌더
+실측이 기준에 못 미치면 값을 다시 제안해 승인을 받는다 — 같은 라운드의 hover 단은 기준과 같은 ΔL
+0.06으로 승인된 뒤 light 렌더가 0.0599여서, 승인 뒤에 0.07로 바뀌었다. world 후보와 amendment의 색
+값은 sRGB 안에 둔다(`design-substrate` STEP 1 목록 8이 선언을 잡는다).
+
 **완료 조건:** owner가 하나를 택했거나, reroll·축 변경·정공법·steer 중 하나를 지시했다.
 지시가 reroll이면 이미 제시한 direction을 후보에서 제외하고 STEP 3을 다시 수행한다.
-amendment가 채택되면 바뀔 `DESIGN.md` 문장 목록에 owner의 승인이 달렸다.
+amendment가 채택되면 바뀔 `DESIGN.md` 문장 목록과 토큰 목록에 owner의 승인이 달렸다.
 
 ## STEP 4 — direction contract 기록
 
@@ -121,6 +132,10 @@ amendment가 채택되면 바뀔 `DESIGN.md` 문장 목록에 owner의 승인이
 가져온 것은 **discipline(규율)**로 적는다 — "무엇을 어떻게 하는가"를 바꾸는 문장으로.
 surface에 element를 추가하는 형태로 적지 않는다. element로 번역하면 근거 없는 widget이
 생기고, 그것이 2026-09 실패의 직접 원인이었다.
+
+contract는 world 값(색 · lightness · 반경 등 `DESIGN.md`가 정한 값)을 옮겨 적지 않고 `DESIGN.md`의
+**이름**으로 가리킨다. 사본은 amendment가 값을 바꾸면 옛 값으로 남는다 — 2026-09 TuBrief(tubrief-v2
+#33) 뒤 videos-list brief의 OWN-WORLD가 바뀌기 전 signal `oklch(0.8 0.14 200)`을 적고 있었다.
 
 **완료 조건:** 여섯 블록(THESIS · OWN-WORLD · STORY · FIRST VIEWPORT · FORM ·
 MEMORABLE MOMENT)이 기록되고, contract 안의 모든 항목이 deletion test를 통과한다.
@@ -207,8 +222,8 @@ owner에게 보여준다.** G1에서 승인된 rule 개정은 여기서 반영�
 전체에서 걷어낸다. Named Rules, Colors, Components, Do's and Don'ts, 그리고 sidecar의
 `narrative`가 같은 문장을 나눠 갖고 있으므로 한 곳만 고치면 나머지가 낡는다.
 
-**완료 조건:** 폐기된 rule의 잔존 언급이 `DESIGN.md`·sidecar·surface brief에서 0건이다.
-owner가 ship을 승인했고, 커밋이 만들어졌다.
+**완료 조건:** 폐기된 rule의 잔존 언급이 `DESIGN.md`·sidecar·surface brief에서 0건이고, surface
+brief에 옮겨 적힌 world 값이 0건이다(STEP 4). owner가 ship을 승인했고, 커밋이 만들어졌다.
 
 ## 일반화 loop (매 gate마다 강제)
 

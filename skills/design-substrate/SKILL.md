@@ -159,6 +159,10 @@ S1에서 세션이 끊기므로 **다음 세션은 대화가 아니라 파일을
   대비는 **인접 바탕**에 대해 잰다: 바깥 층은 부모의 바닥, 안쪽(inset) 층은 요소 자신의 바닥,
   border처럼 경계에 걸친 층은 둘 중 나쁜 쪽. 강제한 state는 transition을 시작시키므로, 읽기 전에
   요소의 animation을 끝 상태로 보낸다.
+- **선언의 gamut만은 산술로 묻는다.** 목록 8(「STEP 1」)은 칠해진 색이 아니라 **선언된 값**이 sRGB 안에
+  있는지를 묻는데, 래스터는 범위 밖 색을 sRGB 경계로 잘라 칠하므로 그 질문에 답하지 못한다. 그래서
+  [`scripts/gamut.mjs`](scripts/gamut.mjs)가 CSS Color 4의 변환식으로 선언을 계산하고, 계산하지 못하는
+  표기는 `null`로 돌려 detector가 결함으로 센다. 칠해진 색을 읽는 일은 여전히 커널만 한다.
 
 **검사 코드는 이 SKILL에 있고, 프로젝트에는 설정 하나만 남는다.** 저장소에만 있는 검사는 그
 저장소만 지키고, 다음 프로젝트는 같은 결함을 처음부터 다시 만든다(TuBrief에서 corner 단 수를
@@ -179,8 +183,8 @@ S1에서 세션이 끊기므로 **다음 세션은 대화가 아니라 파일을
 - `detect` — `tokensFile`(토큰 선언 시트) · `sources`(렌더되는 모든 파일의 git glob, 시안 포함) ·
   `primitives`(primitive 파일 glob) · `designDoc`(권위 문서) · `stylesheetBase` ·
   `declarationSheets`(선언을 인정할 `node_modules` 시트) · `runtimeOwned`(라이브러리가 런타임에 쓰는
-  변수) · `utilityExempt`(파일 · 쓰인 그대로의 클래스 문자열 · 사유 — 목록 5·6·7이 그 파일의 그 문자열을
-  건너뛴다) · `vocabularies`(어휘 이름 → 토큰 목록) ·
+  변수) · `utilityExempt`(파일 · 쓰인 그대로의 문자열 · 사유 — 목록 5·6·7은 클래스 문자열, 목록 8은
+  `tokensFile`의 선언 `--이름: 값`을 건너뛴다) · `vocabularies`(어휘 이름 → 토큰 목록) ·
   `deferred`(이월 목록: `what · measured · threshold · authority · carriedTo`).
 - `capture` — `rows`(각 행 `id · container · smoke`와 그 밖의 서술 필드) · `themes` · `viewports`
   (`name · width · height`) · `lang` · `base` · `out` · `statesAt`(state를 재는 viewport 이름) ·
@@ -276,6 +280,17 @@ world의 출처를 확정한다. **권위 문서가 있다는 사실이 world가
    α < 1이면 결함이다. 대상은 포커스 변형이 붙은 클래스, 그리고 변형 없는 outline 색이다 — outline은
    포커스가 style을 줄 때만 칠해진다(TuBrief 기본층 `* { @apply outline-ring/50 }`). 판정은 목록 5와
    같이 클래스를 변형째 라이브러리에 컴파일시켜, 만든 CSS의 선택자와 색 선언으로 한다.
+8. **gamut 밖 world 색(out-of-gamut colour)** — 토큰 선언 시트(`tokensFile`)의 색 선언 가운데 sRGB 밖에
+   있는 값. sRGB 화면은 그 색을 잘라서 칠하고 측정기도 잘린 색을 읽지만, 넓은 gamut(P3) 화면은
+   선언을 그대로 칠하므로, 잰 대비가 어느 화면의 것인지 보증되지 않는다(2026-09 TuBrief light signal
+   `oklch(0.52 0.12 200)`: 그 L · h에서 sRGB 최대 C는 0.0884, 잰 대비 4.43은 잘린 색의 값). 판정은
+   `scripts/gamut.mjs`의 계산이다(「실행 수단」). OKLCH는 C가 그 L · h의 sRGB 최대 C보다 0.0005 넘게 크면
+   결함이다 — 한계값을 셋째 자리로 반올림해 적은 선언(최대 0.0578을 `0.058`로)은 통과시킨다. 허용치는
+   적힌 자릿수와 무관하게 고정이다(`0.14`처럼 둘째 자리로 적었다고 0.005를 봐주지 않는다). 계산하지
+   못하는 표기(`color-mix()`, `color(rec2020 …)` 등)도 결함으로
+   센다. 값의 권위는 world에 있으므로 이 pass가 값을 고치지 않고 `out-of-authority`로 올린다(「역할과 gate」).
+   owner가 ⓑ · ⓒ를 고르면 이월 목록에 더해 그 선언을 `utilityExempt`에 올린다 — 이월 목록은 종료 코드를
+   바꾸지 않으므로, 올리지 않으면 detector가 매 커밋을 막는다.
 
 **기준선을 지금 뜬다.** STEP 3이 값을 바꾸기 전에 재현 가능한 before를 확보한다. 라우터에서
 **전 화면**을 뽑아 manifest를 만들고(화면이 20개를 넘으면 표본안을 S1 제출물에 넣되, 승인

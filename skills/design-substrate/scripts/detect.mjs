@@ -21,6 +21,8 @@
  *                   a value only the library's own sheet declares
  * 7. translucent-focus — a focus indicator colour below alpha 1, whose
  *                   contrast changes with whatever ground it lands on
+ * 8. out-of-gamut — a world colour declared outside sRGB, which a raster
+ *                   clips before any contrast is measured
  *
  * Scope is every file that renders, dev-only preview code included: a comp
  * preview was once left out, and a token the substrate pass deleted went on
@@ -35,6 +37,7 @@ import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { loadConfig } from "./config.mjs";
+import { gamutVerdict } from "./gamut.mjs";
 
 function listFiles(...globs) {
   const result = spawnSync("git", ["ls-files", ...globs], { encoding: "utf8" });
@@ -300,6 +303,31 @@ async function main() {
       });
     }
   });
+
+  /* 8. out-of-gamut world colours. An sRGB display clips the colour and every
+   * measurement reads the clipped one, while a wide-gamut display paints the
+   * declaration: the measured contrast describes neither for certain
+   * (oklch(0.52 0.12 200) against an sRGB ceiling of C 0.0884). Asked of the
+   * declaration, not of painted pixels, because the raster is what clips. A
+   * colour function this check cannot evaluate is counted, never skipped. */
+  const COLOUR_VALUE = /^(?:#|(?:oklch|oklab|lch|lab|color|rgba?|hsla?|hwb|color-mix)\()/i;
+  stripComments(css)
+    .split("\n")
+    .forEach((line, i) => {
+      const m = line.match(/^\s*(--[\w-]+):\s*([^;]+);/);
+      if (!m || !COLOUR_VALUE.test(m[2].trim())) return;
+      const written = `${m[1]}: ${m[2].trim()}`;
+      if (utilityExempt.some((e) => e.file === tokensFile && e.text === written)) return;
+      const verdict = gamutVerdict(m[2]);
+      if (verdict?.inside) return;
+      findings.push({
+        kind: "out-of-gamut",
+        where: `${tokensFile}:${i + 1}`,
+        what: verdict
+          ? `${written} — ${verdict.detail}`
+          : `${written} — 이 검사가 계산하지 못하는 색 표기다(읽지 못한 값)`,
+      });
+    });
 
   if (census) {
     for (const [token, read] of Object.entries(fate)) console.log(`${read.padEnd(8)} ${token}`);
