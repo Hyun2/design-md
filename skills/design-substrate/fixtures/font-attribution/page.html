@@ -1,0 +1,64 @@
+<!doctype html>
+<!--
+  Input for `font-attribution.mjs` (config.mjs beside it). No web font is
+  loaded, so every glyph is an installed face and the policy decides alone.
+  Allowed: Latin, Digit, Hiragana, Katakana, Han — not Common, so the kana
+  marks ー (U+30FC) and ・ (U+30FB), Script=Common, pass only when classified
+  by block. No punctuation elsewhere: it is Common too.
+
+  Text sits where a default-state read never reaches:
+    - the second tab's panel, and inside it a closed disclosure;
+    - a card with content-visibility: auto far below the fold.
+  Every run must read all of it: the closed disclosure holds the one line a
+  mutation turns into an undeclared script.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>font-attribution fixture</title>
+    <style>
+      body { font-family: sans-serif; }
+      [hidden] { display: none; }
+      .far { margin-top: 3000px; content-visibility: auto; contain-intrinsic-size: 0 40px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p>Visible in the default state</p>
+      <p lang="ja">テーマ・ツール</p>
+      <div role="tablist">
+        <button role="tab" aria-selected="true" aria-controls="panel-a" id="tab-a">First</button>
+        <button role="tab" aria-selected="false" aria-controls="panel-b" id="tab-b">Second</button>
+      </div>
+      <section id="panel-a" role="tabpanel">
+        <p>First panel</p>
+      </section>
+      <section id="panel-b" role="tabpanel" hidden>
+        <p>Second panel</p>
+        <button aria-expanded="false" aria-controls="inner">Show more</button>
+        <div id="inner" hidden>
+          <p>Hidden in a closed disclosure</p>
+        </div>
+      </section>
+      <p class="far">Laid out only when content visibility is overridden</p>
+    </main>
+    <script>
+      for (const tab of document.querySelectorAll('[role="tab"]')) {
+        tab.addEventListener("click", () => {
+          for (const t of document.querySelectorAll('[role="tab"]')) {
+            const selected = t === tab;
+            t.setAttribute("aria-selected", String(selected));
+            document.getElementById(t.getAttribute("aria-controls")).hidden = !selected;
+          }
+        });
+      }
+      for (const toggle of document.querySelectorAll("[aria-expanded]")) {
+        toggle.addEventListener("click", () => {
+          const open = toggle.getAttribute("aria-expanded") !== "true";
+          toggle.setAttribute("aria-expanded", String(open));
+          document.getElementById(toggle.getAttribute("aria-controls")).hidden = !open;
+        });
+      }
+    </script>
+  </body>
+</html>
