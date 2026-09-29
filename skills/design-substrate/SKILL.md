@@ -166,11 +166,12 @@ S1에서 세션이 끊기므로 **다음 세션은 대화가 아니라 파일을
 
 | 스크립트 | STEP | 하는 일 |
 |---|---|---|
-| [`scripts/detect.mjs`](scripts/detect.mjs) | 1 · 7 · 8 | 다섯 결함 목록 탐지 + 이월 목록 출력. findings가 있으면 exit 1 |
+| [`scripts/detect.mjs`](scripts/detect.mjs) | 1 · 7 · 8 | 여섯 결함 목록 탐지 + 이월 목록 출력. findings가 있으면 exit 1 |
 | [`scripts/capture.mjs`](scripts/capture.mjs) | 1 · 5 | manifest 행마다 캡처와 기준 2·3·4 측정. 측정 실패 또는 4b 미달이면 exit 1 |
+| [`scripts/font-attribution.mjs`](scripts/font-attribution.mjs) | 1 · 5 | 출하 locale × manifest 행 × viewport마다 글리프를 그린 face(STEP 5 항목 6). 허용 밖 OS 글리프가 있거나 측정 실패면 exit 1 |
 | [`scripts/adapters/<라이브러리>.mjs`](scripts/adapters/tailwind.mjs) | — | [`ADAPTERS.md`](ADAPTERS.md) 여섯 질문의 답을 코드로. 목록에 없는 라이브러리는 새 어댑터 파일을 이 SKILL에 추가한다 |
 
-프로젝트 루트에서 `node ~/.agents/skills/design-substrate/scripts/<detect|capture>.mjs --config <설정 파일>`로
+프로젝트 루트에서 `node ~/.agents/skills/design-substrate/scripts/<detect|capture|font-attribution>.mjs --config <설정 파일>`로
 부른다. 패키지(Playwright · 라이브러리 컴파일러)는 부르는 프로젝트의 `node_modules`에서 찾는다.
 설정 파일은 ES 모듈(`.mjs`, 또는 Node ≥ 22.18이면 `.ts`)이고 default export가 이 모양이다:
 
@@ -185,6 +186,10 @@ S1에서 세션이 끊기므로 **다음 세션은 대화가 아니라 파일을
   `scroller`(문서 대신 스크롤되는 요소, 없으면 생략) · `setup()`(행 렌더에 필요한 계정·데이터를 읽는다.
   `fixture`만 출력에 기록된다) · `session(row)` · `storageState(session, setup)` ·
   `url(row, { base, lang, theme }, setup)` · 선택 `stateTargets`(기준 4 대상 이름 → selector, 기본은 어댑터).
+- `fonts` — `locales`(출하하는 전 locale) · `installedAllowed`(OS face가 그려도 되는 글자: `scripts`는
+  `Han` · `Hiragana` · `Katakana` · `CJK-punct` · `Emoji` 등 문자 분류 이름, `selector`는 그 조상 안의
+  글자 전부. 근거는 권위 문서의 행) · 선택 `theme`(기본은 `capture.themes`의 첫째 — face는 theme과
+  무관하다). 행 · viewport · URL은 `capture`의 것을 그대로 쓴다.
 
 호출부가 URL을 만들어 넘기는 일 이상을 하거나, 프로젝트 `scripts/`에 판정 코드가 생기면 결함이다.
 ledger의 asset 행은 이 SKILL 안의 스크립트만 잡는 장치로 받는다(`design-loop` 「asset의 경계」).
@@ -230,7 +235,7 @@ world의 출처를 확정한다. **권위 문서가 있다는 사실이 world가
 |---|---|---|---|---|
 | 면 색 · 글자색 · 반경 · 테두리 · 그림자 · 강조색 · 타입 램프 · 간격 | … | … | … | … |
 
-그리고 다섯 가지를 따로 목록화한다. **이 다섯 범위가 STEP 7 detector의 범위이기도 하다.**
+그리고 여섯 가지를 따로 목록화한다. **이 여섯 범위가 STEP 7 detector의 범위이기도 하다.**
 
 **스캔 범위는 렌더되는 모든 코드다** — 출하 화면, primitive, 그리고 시안·preview·개발 전용 라우트까지.
 제외는 파일과 사유를 적은 목록으로만 한다. 이 정의 하나를 STEP 1 · STEP 7 · STEP 8이 같이 쓴다.
@@ -253,11 +258,22 @@ world의 출처를 확정한다. **권위 문서가 있다는 사실이 world가
    한다(어댑터 계약 질문 6). 예: Tailwind v4에서 `@theme`에 `--color-accent-solid`가 없으면
    `bg-accent-solid`는 CSS를 하나도 만들지 않는다. `var(--x)`와 `bg-(--x)`는 무엇이든 컴파일되므로
    질문이 한 단 내려가 `--x`를 선언하는 곳이 있는지가 된다.
+6. **라이브러리 기본값 참조(library-default reference)** — world가 소유한 축의 유틸리티가 world가
+   아니라 **라이브러리 자신의 기본 시트만 선언한 값**으로 해석되는 참조. CSS가 만들어지므로 목록 5를
+   통과하고, 요소는 오류 없이 라이브러리 기본값을 칠한다. 예: world가 `--font-mono`를 선언하지 않은
+   Tailwind v4에서 `font-mono`는 `tailwindcss/theme.css`의 monospace stack으로 해석되고, 글자는 OS
+   글꼴로 떨어진다(2026-09 TuBrief 자막 타임코드 1,848 글리프가 Liberation Mono). 판정은 목록 5와
+   같이 라이브러리가 만든 CSS가 읽는 변수로 하고, 어느 축을 world가 소유하는지는 어댑터가 적는다.
+   축은 결함이 관찰될 때 하나씩 늘린다 — 간격·글자 크기처럼 라이브러리 기본값을 의도해서 쓰는 축에
+   걸면 출력이 의미를 잃는다.
 
 **기준선을 지금 뜬다.** STEP 3이 값을 바꾸기 전에 재현 가능한 before를 확보한다. 라우터에서
 **전 화면**을 뽑아 manifest를 만들고(화면이 20개를 넘으면 표본안을 S1 제출물에 넣되, 승인
 전까지는 전 화면을 대상으로 둔다), 출하하는 모든 theme × 대표 viewport 2개(모바일·데스크톱)로
-캡처하고 STEP 5의 2·3·4 항목을 **지금 측정해 기록한다.**
+캡처하고 STEP 5의 2·3·4 항목을 **지금 측정해 기록한다.** 같은 manifest를 **출하하는 모든 locale**로
+다시 돌려 항목 6(렌더 폰트 귀속)의 before를 뜬다(`font-attribution.mjs`). face 결손은 locale마다
+다른 문자에서 나므로, 한 locale로 뜬 기준선은 나머지 locale의 before가 되지 못한다 — TuBrief는
+face를 교체하면서 before와 after를 모두 `ko`로만 떠서 다국어 확인을 별도 재측정으로 미뤘다.
 
 manifest의 각 행은 STEP 5가 그대로 다시 쓰는 계약이므로, 화면마다 **측정할 컨테이너를
 selector로**, **스모크 흐름을 시작 상태 · 동작 · 기대 결과로** 확정해 적는다. "주요"를 STEP
@@ -279,10 +295,10 @@ selector로**, **스모크 흐름을 시작 상태 · 동작 · 기대 결과로
 아니라 **측정 실패**이고 기준선으로 쓸 수 없다.
 
 **완료 조건:** ⓐ 8개 속성 전부가 표에 있고, 권위 수 2 이상인 행마다 두 어휘의 토큰 이름과 값이
-나란히 적혔다 ⓑ split-brain · dead token · 하드코딩 · drift · 끊긴 참조 다섯 목록이 파일·행 번호와 함께
+나란히 적혔다 ⓑ split-brain · dead token · 하드코딩 · drift · 끊긴 참조 · 라이브러리 기본값 참조 여섯 목록이 파일·행 번호와 함께
 작성됐고 개수가 수치로 보고됐다. 반경은 리터럴 수와 해석된 값의 단 수를 따로 적었다 ⓒ manifest에 라우터에서 뽑은 전 화면과 조건부 상태가 들어 있고, **각 행마다** 모든
 출하 theme × viewport 2개 캡처 · 측정 컨테이너 selector · 스모크 흐름 · STEP 5 항목 2·3·4의
-before 수치가 있다 ⓓ 렌더하지 못한 행은 blocker로 표시됐다 ⓔ 모든 행의 측정 출력에 읽지 못한
+before 수치, 그리고 출하 locale 전부 × viewport 2개의 항목 6 before 수치가 있다 ⓓ 렌더하지 못한 행은 blocker로 표시됐다 ⓔ 모든 행의 측정 출력에 읽지 못한
 값의 수가 적혔고 전부 0이다.
 
 ## STEP 2 — 단일화 계획 (STOP · S1)
@@ -349,6 +365,7 @@ manifest를 그대로 다시 돌린다 — 같은 행, 같은 theme, 같은 view
 | 4a | state 구분 — 면 | hover · selected · disabled가 각 primitive에서 바탕 대비 **면의** ΔL ≥ 0.06으로 구분된다 |
 | 4b | state 구분 — focus | **포커스 표시**(「용어」 — focus가 idle에 비해 새로 칠하거나 바꾼 층)가 있고, 그 층이 **인접 바탕 대비 ≥ 3:1**(WCAG 2.2 SC 1.4.11 non-text contrast)이며 두께가 0보다 크다. idle에도 있는 색은 통과 근거가 아니다. 판정은 커널 `focusIndicator`(「실행 수단」) |
 | 5 | 기능 보존 | manifest의 스모크 흐름 전부가 기대 결과에 도달 |
+| 6 | 렌더 폰트 귀속 | 출하 locale 전부 × viewport 2개에서 OS face(페이지가 싣지 않은 face)가 그린 글리프가 설정 `installedAllowed` 밖에 0개. 기본 상태만이 아니라 보이는 탭을 하나씩 고르고 닫힌 disclosure(`[aria-expanded="false"][aria-controls]`)를 하나씩 연 상태까지 센다 — 닫힌 자막 패널 안의 1,848 글리프가 기본 상태에서 0으로 읽혔다. 문자는 Unicode Script가 아니라 블록으로 가른다(`ー` U+30FC는 Script=Common인 가나 부호) |
 
 **4를 둘로 나눈 이유:** focus는 대개 면이 아니라 **링**으로 표현된다. 면의 ΔL로 재면 링이 아무리
 잘 보여도 구조적으로 0이 나오므로, 그 기준으로는 링 기반 라이브러리의 focus가 영구히 통과할 수
@@ -357,7 +374,7 @@ manifest를 그대로 다시 돌린다 — 같은 행, 같은 theme, 같은 view
 **"깨졌다"의 정의:** 읽을 수 없는 텍스트, 보이지 않는 컨트롤, 잘린 콘텐츠, 사라진 state 구분,
 동작하지 않는 흐름. 그 외의 변화는 의도된 결과다.
 
-**완료 조건:** manifest의 **모든 행**에 대해 5개 항목의 수치가 적혔고 실패 0건이다. 고칠 수
+**완료 조건:** manifest의 **모든 행**에 대해 6개 항목의 수치가 적혔고 실패 0건이다. 고칠 수
 없다고 판단한 실패는 예외 요청으로 올린다. before/after 캡처가 같은 파일명으로 짝지어졌다.
 
 ## STEP 6 — 합성 측정
@@ -403,6 +420,7 @@ STEP 1이 손으로 찾은 것을 기계가 다시 찾게 만든다. **탐지 �
 3. split-brain — 같은 속성을 결정하는 토큰 접두사가 2개 이상
 4. drift — 권위 문서의 반경·면 정책과 primitive 실제 값의 불일치
 5. 끊긴 참조 — 라이브러리가 아무것도 만들지 않는 유틸리티·토큰 키, 선언 없는 변수 참조
+6. 라이브러리 기본값 참조 — world가 소유한 축(어댑터 `WORLD_OWNED_NAMESPACES`)에서 라이브러리 기본 시트만 선언한 값으로 해석되는 유틸리티
 
 스캔 범위는 STEP 1의 정의 그대로다. **스캔 대상에서 디렉터리를 빼는 코드가 detector에 있으면
 그 자체가 결함이다** — 제외는 파일·사유 목록으로만 하고, 목록은 실행마다 읽힌다.
