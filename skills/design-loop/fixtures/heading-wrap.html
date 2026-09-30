@@ -9,10 +9,11 @@
 
   node <skill>/scripts/measure-surface.mjs --urls file://<this file> \
     --viewport 1440 --height 900 --out /tmp/heading-wrap.json 2>&1 \
-    | grep -F 'text-wrap: balance; with text-wrap: wrap'
+    | tee /dev/stderr | grep -F 'text-wrap: balance; with text-wrap: wrap' >/dev/null
   (from a project root that resolves Playwright)
 
-  The grep exits 0 when the line carries the text-wrap, 1 when it does not.
+  The whole output stays on stderr; the grep exits 0 when the failure line
+  carries the text-wrap, 1 when it does not.
 -->
 <html lang="en" data-comp-ready>
   <head>
