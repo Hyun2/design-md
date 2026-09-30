@@ -102,8 +102,9 @@ owner에게 확인받는다. 근거를 못 찾은 항목은 빈칸으로 두고 
    화면이 있으면 `--baseline`에 그 URL을 넘긴다. 그
    `_provenance.commit`을 제출에 명시하고, `operability.inert`(비동작 컨트롤과 사유) ·
    `correspondence.new` · `correspondence.dropped`(새로 넣은 · 뺀 컨트롤과 사유) ·
-   `relational.exempted`(관계 기준 8~12 · 14의 예외와 사유 — owner가 한 줄씩 승인하거나 반려한다)와
-   조작 결과 대응표를 붙인다. [`REFERENCE.md`](REFERENCE.md) 「Operability check」 · 「Correspondence
+   `relational.exempted` · `sweep.exempted`(관계 기준 8~12 · 14 · 15의 예외와 사유 — owner가 한 줄씩 승인하거나 반려한다)와
+   조작 결과 대응표를 붙인다. 제출 측정은 폭 훑기를 포함한다 — 출력의 `sweep`이 null이 아니다.
+   [`REFERENCE.md`](REFERENCE.md) 「Operability check」 · 「Correspondence
    check」 · 「Relational acceptance criteria」. 측정 뒤에 파일을 한 줄이라도 쓰면 다시 잰다
 
 STEP 1의 7번이 개정 후보를 남겼거나 이 단계에서 기존 rule이 goal을 막는다고 판단되면,
@@ -156,7 +157,7 @@ world는 고정하고 layout만 세 가지로 만든다. world와 composition의
    - 최소 하나는 "무엇을 dominant element(지배 요소)로 둘 것인가"
    - 최소 하나는 "information density(정보 밀도)"
    - world(palette·type family·corner·elevation)는 variable이 아니다
-2. variable 승인 후 3안을 만든다. **「Comp fidelity conditions」 10개를 전부** 만족시키고,
+2. variable 승인 후 3안을 만든다. **「Comp fidelity conditions」를 전부** 만족시키고,
    STEP 3의 4번(제출 증거)을 같은 형식으로 붙인다. world가 집행층에 들어가 있으면 `--shipped-world`를
    함께 준다([`REFERENCE.md`](REFERENCE.md) 「Shipped-world check」)
 3. 각 안에서 **지워도 되는 element를 스스로 지목**한다 — 테두리·배경을 가진 컨테이너도

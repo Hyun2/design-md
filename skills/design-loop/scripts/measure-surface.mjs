@@ -18,13 +18,14 @@
  * composited over an unexpected ground, a face that silently fell back, a token
  * overridden downstream.
  *
- * Criteria 1-7 are the element criteria in REFERENCE.md; 8-12 and 14 are the
- * relational ones, and each fails the run: controls on one line of different
- * heights or kinds with identical looks (or no visible marked control at all),
- * a picture of which under 95% is on screen (or one that cannot be read), a
- * painted box set beside another with an empty band of 4rem and 15% of its
- * height, a display heading that wraps into lines under 70% of its column, a
- * sentence of 24+ characters printed twice.
+ * Criteria 1-7 are the element criteria in REFERENCE.md; 8-12, 14 and 15 are
+ * the relational ones, and each fails the run: controls on one line of
+ * different heights or kinds with identical looks (or no visible marked
+ * control at all), a picture of which under 95% is on screen (or one that
+ * cannot be read), a painted box set beside another with an empty band of
+ * 4rem and 15% of its height, a display heading that wraps into lines under
+ * 70% of its column, a sentence of 24+ characters printed twice, text wrapped
+ * or cut in a column under 6em of its own size.
  * `data-comp-exempt="<criterion>: <reason>"` takes an element out of that
  * judgement and into `relational.exempted`, which the submission shows the
  * owner. Only 8 needs a markup contract: `data-comp-control="<name>"` on each
@@ -69,6 +70,12 @@
  * a shell whose scaling or placement is wrong (2026-09: RTL frames drawn off
  * the left edge at 1280x720 and 1440x900 alike).
  *
+ * Each frame is then opened on its own and resized through `--sweep`, where
+ * criteria 8-12 and 15 are judged at every width without operating anything:
+ * in 2026-09 the narrowest list title (26px, 1.2em) sat at 640px, a width no
+ * device has, and widening the window past 1535px shrank a 21em title cell
+ * to 4.7em when the list went from two columns to four.
+ *
  * Options:
  *   --urls    comma-separated URLs to measure (required); a comma inside a
  *             URL (a shell's world list) must travel as %2C
@@ -88,6 +95,9 @@
  *             the substrate pass): every token the baseline defines must
  *             resolve to the same value at --root, or the run fails. Needs
  *             --baseline; without it the output says `tokens: null`
+ *   --sweep     <from>-<to>:<step> window widths the layout criteria are
+ *             judged at, default 390-1920:16, window height 900; `off` skips
+ *             it and the output says `sweep: null`, which is "not checked"
  *
  * Colour is read by the shared kernel in `design-substrate/scripts/color-kernel.mjs`
  * (override the skill location with DESIGN_SUBSTRATE_HOME). Every row carries
@@ -137,6 +147,28 @@ const rootSelector = arg("root", "");
 const outFile = arg("out", "measure.json");
 const baselines = arg("baseline", "").split(",").filter(Boolean);
 const shippedWorld = process.argv.includes("--shipped-world");
+// The width sweep of 「Comp fidelity conditions」 10: layout criteria at every
+// step between the smallest and the largest device, because a column is
+// narrowest where a layout switches, and those widths belong to the code, not
+// to the device list.
+const SWEEP_HEIGHT = 900;
+const sweep = (() => {
+  const value = arg("sweep", "390-1920:16");
+  if (value === "off") return null;
+  const m = value.match(/^(\d+)-(\d+):(\d+)$/);
+  if (!m || Number(m[3]) <= 0 || Number(m[1]) > Number(m[2])) {
+    console.error(`measure-surface: --sweep "${value}" is not <from>-<to>:<step> or off`);
+    process.exit(1);
+  }
+  const [from, to, step] = m.slice(1).map(Number);
+  // Steps sit on multiples of the step, not on `from` + n·step: breakpoints
+  // are written in rem (Tailwind sm = 40rem = 640px), so 390 + 16n would pass
+  // every one of them by 6px.
+  const widths = [from];
+  for (let w = Math.ceil((from + 1) / step) * step; w < to; w += step) widths.push(w);
+  if (to > from) widths.push(to);
+  return { from, to, step, widths };
+})();
 
 if (shippedWorld && baselines.length === 0) {
   console.error("measure-surface: --shipped-world requires --baseline");
@@ -275,7 +307,7 @@ const MEASURE = (rootSelector) => `async () => {
   for (const role of ['sans', 'catalogue', 'notation']) {
     faces[role] = getComputedStyle(root).getPropertyValue('--font-' + role).trim().split(',')[0];
   }
-  // Declared exceptions to the gated relational criteria (8-12, 14):
+  // Declared exceptions to the gated relational criteria (8-12, 14, 15):
   // \`data-comp-exempt="<criterion>: <reason>"\` on the element or an ancestor,
   // several joined by \`;\`. An exempt element leaves the judgement and lands in
   // \`exempted\` with its reason, which the submission puts before the owner —
@@ -289,7 +321,7 @@ const MEASURE = (rootSelector) => `async () => {
     const reasons = new Map();
     for (const part of a.getAttribute('data-comp-exempt').split(';')) {
       const m = part.match(/^\\s*(\\d+)\\s*:\\s*(\\S.*)$/);
-      if (m && [8, 9, 10, 11, 12, 14].includes(Number(m[1]))) reasons.set(Number(m[1]), m[2].trim());
+      if (m && [8, 9, 10, 11, 12, 14, 15].includes(Number(m[1]))) reasons.set(Number(m[1]), m[2].trim());
       else badExempt.push(part.trim());
     }
     declared.set(a, reasons);
@@ -452,6 +484,58 @@ const MEASURE = (rootSelector) => `async () => {
       relationalDefects.push('criterion 11: heading "' + text + '" wraps into ' + rows.length + ' lines using ' + usedPct + '% of its ' + Math.round(parent.width) + 'px column');
     }
   }
+
+  // 15 — text measure: is text given a column it can be read in? In 2026-09 a
+  // 200px thumbnail kept beside the title from 640px up left the list's 22px
+  // titles 26px (1.2em) at 640, 90px at 768 and 104px (4.7em) at 1920 — four
+  // or five Hangul a line — and criterion 10 passed once the cards stopped
+  // stretching, because the void had moved out of the cards. The width is the
+  // content box of the block the text is laid out in, in em of the text's own
+  // size, so Hangul and Latin answer to one rule. Only text the column broke
+  // is judged: wrapped into two lines or more, or cut to one line by an
+  // ellipsis or a line clamp. A one-line label as wide as its words (a 2em
+  // tab) has all the room it needs.
+  const measureMinEm = 6;
+  const clampOf = (st) => ['-webkit-line-clamp', 'line-clamp'].some((p) => {
+    const v = st.getPropertyValue(p).trim();
+    return v !== '' && v !== 'none' && v !== '0';
+  });
+  const textMeasures = [];
+  for (const el of all) {
+    const nodes = [...el.childNodes].filter((n) => n.nodeType === 3 && n.textContent.trim());
+    if (nodes.length === 0 || !visible(el)) continue;
+    const s = getComputedStyle(el);
+    const size = parseFloat(s.fontSize);
+    if (!size) continue;
+    let box = el;
+    while (box !== root && box.parentElement && ['inline', 'contents'].includes(getComputedStyle(box).display)) box = box.parentElement;
+    const tops = [];
+    for (const n of nodes) {
+      const range = document.createRange();
+      range.selectNodeContents(n);
+      for (const q of range.getClientRects()) if (q.width > 0 && q.height > 0) tops.push(q.top);
+      range.detach();
+    }
+    tops.sort((a, b) => a - b);
+    let lines = 0;
+    let lineTop = -Infinity;
+    for (const t of tops) if (t - lineTop > size / 2) { lines += 1; lineTop = t; }
+    const bs = getComputedStyle(box);
+    const cut = lines === 1
+      && (s.textOverflow === 'ellipsis' || bs.textOverflow === 'ellipsis' || clampOf(s) || clampOf(bs))
+      && (el.scrollWidth > el.clientWidth || box.scrollWidth > box.clientWidth);
+    if (lines < 2 && !cut) continue;
+    const r = box.getBoundingClientRect();
+    const contentPx = Math.max(0, r.width - parseFloat(bs.borderLeftWidth) - parseFloat(bs.borderRightWidth) - parseFloat(bs.paddingLeft) - parseFloat(bs.paddingRight));
+    const em = Number((contentPx / size).toFixed(2));
+    const text = nodes.map((n) => n.textContent.trim()).join(' ').replace(/\\s+/g, ' ').slice(0, 32);
+    const label = boxLabel(box);
+    textMeasures.push({ box: label, text, em, contentPx: Math.round(contentPx), fontPx: size, lines, cut });
+    if (em < measureMinEm && !exempt(el, 15, 'text ' + text)) {
+      relationalDefects.push('criterion 15: ' + label + ' "' + text + '" is set ' + em + 'em wide (' + Math.round(contentPx) + 'px at ' + size + 'px) and ' + (cut ? 'is cut to one line' : 'breaks into ' + lines + ' lines'));
+    }
+  }
+  textMeasures.sort((a, b) => a.em - b.em);
 
   // 12 — is any sentence printed twice on the surface?
   // The reader printed the brief's first sentence in a strip above the brief.
@@ -626,7 +710,7 @@ const MEASURE = (rootSelector) => `async () => {
   hitAll.remove();
   for (const [n, [left, top]] of scrolled) { n.scrollLeft = left; n.scrollTop = top; }
 
-  for (const part of badExempt) relationalDefects.push('data-comp-exempt "' + part + '" is not "<8|9|10|11|12|14>: <reason>"');
+  for (const part of badExempt) relationalDefects.push('data-comp-exempt "' + part + '" is not "<8|9|10|11|12|14|15>: <reason>"');
 
   return {
     dominant: {
@@ -657,11 +741,14 @@ const MEASURE = (rootSelector) => `async () => {
     media,
     columnVoids,
     headings,
+    // 15 — judged text (wrapped or cut), narrowest first; the full list is
+    // counted, not kept: a long page holds hundreds of wrapped paragraphs.
+    textMeasure: { minEm: measureMinEm, judged: textMeasures.length, narrowest: textMeasures.slice(0, 5) },
     duplicates,
     // Gated relational criteria and what failed them; declared exceptions
     // with their reasons; pictures that could not be read.
     relational: {
-      gated: [8, 9, 10, 11, 12, 14],
+      gated: [8, 9, 10, 11, 12, 14, 15],
       defects: relationalDefects,
       exempted,
       mediaUnread,
@@ -1380,6 +1467,58 @@ function provenance() {
   }
 }
 
+// One document, resized through the sweep's widths. A frame URL is opened on
+// its own: the sweep asks how the layout behaves at a width, which the shell
+// cannot show, and controls are not operated here — the device run operates
+// them. A defect is reported once with every width it appeared at, the
+// digits of its message set aside so 26px and 90px of one title are one line.
+async function sweepWidths(browser, url) {
+  const page = await browser.newPage({ viewport: { width: sweep.widths[0], height: SWEEP_HEIGHT } });
+  const pageErrors = new Set();
+  page.on("pageerror", (error) => pageErrors.add(String(error.message).split("\n")[0]));
+  await page.goto(url, { waitUntil: "networkidle" });
+  await waitReady(page.mainFrame());
+  await page.evaluate(COLOR_KERNEL);
+  const found = new Map();
+  const unread = [];
+  const exempted = new Map();
+  let narrowest = null;
+  for (const width of sweep.widths) {
+    await page.setViewportSize({ width, height: SWEEP_HEIGHT });
+    await page.evaluate(() => document.fonts.ready.then(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))));
+    const r = await page.evaluate(`(${MEASURE(rootSelector)})()`);
+    if (r.measurementFailed || r.colorRead.unread > 0) { unread.push(width); continue; }
+    for (const defect of r.relational.defects) {
+      const signature = defect.replace(/\d+(\.\d+)?/g, "#");
+      if (!found.has(signature)) found.set(signature, { defect, widths: [] });
+      found.get(signature).widths.push(width);
+    }
+    for (const e of r.relational.exempted) exempted.set(`${e.criterion} ${e.what}`, e);
+    const [first] = r.textMeasure.narrowest;
+    if (first && (!narrowest || first.em < narrowest.em)) narrowest = { width, ...first };
+  }
+  await page.close();
+  const spans = (widths) => {
+    const out = [];
+    for (const w of widths) {
+      const last = out[out.length - 1];
+      if (last && w - last[1] <= sweep.step) last[1] = w;
+      else out.push([w, w]);
+    }
+    return out.map(([a, b]) => (a === b ? `${a}` : `${a}-${b}`)).join(",");
+  };
+  return {
+    url,
+    widths: `${sweep.from}-${sweep.to}:${sweep.step}`,
+    height: SWEEP_HEIGHT,
+    defects: [...found.values()].map(({ defect, widths }) => ({ defect, widths: spans(widths) })),
+    exempted: [...exempted.values()],
+    narrowest,
+    unread: unread.length ? spans(unread) : null,
+    pageErrors: [...pageErrors],
+  };
+}
+
 async function main() {
   const origin = provenance();
   const browser = await chromium.launch();
@@ -1432,6 +1571,7 @@ async function main() {
         let frame = iframe ? await iframe.contentFrame() : page.mainFrame();
         const title = iframe ? await iframe.getAttribute("title") : null;
         const key = title ? `${label} / ${title}` : iframe ? `${label} / ${frame.url()}` : label;
+        const frameUrl = frame.url();
         await frame.evaluate(() => document.fonts.ready);
         await frame.evaluate(COLOR_KERNEL);
         const result = await frame.evaluate(`(${MEASURE(rootSelector)})()`);
@@ -1494,6 +1634,7 @@ async function main() {
         } else {
           result.correspondence = { baseline: null, note: "not checked: pass --baseline to pair the comp's controls and labels with the operating screen" };
         }
+        result.sweep = sweep ? await sweepWidths(browser, frameUrl) : null;
         out[key] = result;
         pageKeys.push(key);
         console.log(key, JSON.stringify(result));
@@ -1507,6 +1648,11 @@ async function main() {
           const cut = (v) => v.replace(/\s+/g, " ").slice(0, 40);
           const [first] = p.sample;
           failed.push(`${key}: popup "${p.popup}" opened by ${p.control} is outside the surface's token scope (${p.differs} tokens differ, e.g. ${first.name} ${cut(first.surface)} → ${cut(first.popup)})`);
+        }
+        if (result.sweep) {
+          for (const d of result.sweep.defects) failed.push(`${key}: at ${d.widths}px (sweep): ${d.defect}`);
+          if (result.sweep.unread) failed.push(`${key}: sweep read no colour or no kernel at ${result.sweep.unread}px`);
+          for (const error of result.sweep.pageErrors) failed.push(`${key}: sweep page error ${error}`);
         }
       }
       closePage();
