@@ -1,0 +1,39 @@
+<!doctype html>
+<!--
+  Relational criterion 11 (heading fill), the balance form: a 40px heading
+  under `text-wrap: balance` splits into two short lines, and laid out with
+  plain wrapping its first line fills the column (2026-09 TuBrief #65, where a
+  title failing criterion 11 was blamed on its size while balance was the
+  cause). The heading fails criterion 11 on purpose; what the fixture checks is
+  that the failure line names the heading's text-wrap and the plain-wrap fill.
+
+  node <skill>/scripts/measure-surface.mjs --urls file://<this file> \
+    --viewport 1440 --height 900 --out /tmp/heading-wrap.json 2>&1 \
+    | grep -F 'text-wrap: balance; with text-wrap: wrap'
+  (from a project root that resolves Playwright)
+
+  The grep exits 0 when the line carries the text-wrap, 1 when it does not.
+-->
+<html lang="en" data-comp-ready>
+  <head>
+    <meta charset="utf-8" />
+    <title>heading wrap fixture</title>
+    <style>
+      body { margin: 0; background: #111; color: #eee; font: 16px/1.5 sans-serif; }
+      .column { max-width: 720px; margin: 48px auto; }
+      h1 { margin: 0; font-size: 40px; line-height: 1.1; font-weight: 600; text-wrap: balance; }
+      .bar { padding: 16px 0; }
+      .bar button { height: 36px; padding: 0 16px; border: 0; background: #0aa; color: #000; }
+    </style>
+  </head>
+  <body>
+    <div data-comp-world>
+      <div class="column">
+        <h1>A heading that runs past its column by a word</h1>
+      </div>
+      <div class="column bar">
+        <button type="button" data-comp-control="action" data-comp-accent="1" data-comp-inert="fixture: nothing to operate">Play</button>
+      </div>
+    </div>
+  </body>
+</html>
