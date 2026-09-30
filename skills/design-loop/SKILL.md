@@ -284,9 +284,7 @@ node <skill>/scripts/ledger.mjs sync  <gate-issue> --map <process-map>
 직접 치는 경우, 그리고 생성된 티켓을 나중에 지우는 경우. `audit`은 ledger 줄과 공정 지도의
 티켓을 **대조**하므로 두 경우 모두 다음 gate 전에 드러난다.
 
-`audit`이 통과하면 티켓을 집기 전에 **두 지도의 Notes가 이름 붙인 skill을 전부 읽는다** — 출력의 마지막
-줄 `next:`가 이 단계다. 2026-09 TuBrief #76 세션은 audit 뒤 바로 티켓을 집어 grilling을 돌렸고,
-`writing-for-agents`는 owner가 편집안 직전에 다시 지시해서야 읽었다(tubrief-v2 #98).
+`audit`이 통과하면 티켓을 집기 전에 출력의 `next:` 줄을 실행한다.
 
 **두 방어선이 못 잡는 것.** ledger에 애초에 적히지 않은 지적. `check`는 "적힌 줄이 분류됐는가"만
 판정한다. 그러므로 **ledger는 gate가 끝난 뒤에 몰아 쓰지 않고, owner 지적이 나올 때마다 즉시 그

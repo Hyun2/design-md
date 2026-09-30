@@ -173,7 +173,7 @@ S1에서 세션이 끊기므로 **다음 세션은 대화가 아니라 파일을
 |---|---|---|
 | [`scripts/detect.mjs`](scripts/detect.mjs) | 1 · 7 · 8 | STEP 1 결함 목록 탐지 + 이월 목록 출력. findings가 있으면 exit 1 |
 | [`scripts/capture.mjs`](scripts/capture.mjs) | 1 · 5 | manifest 행마다 캡처와 기준 2·3·4 측정. 측정 실패 또는 4b 미달이면 exit 1 |
-| [`scripts/font-attribution.mjs`](scripts/font-attribution.mjs) | 1 · 5 | 출하 locale × manifest 행 × viewport마다 글리프를 그린 face, 그리고 코퍼스 글자(STEP 5 항목 6). 허용 밖 OS 글리프 · 헛다운로드 face가 있거나 측정 실패면 exit 1. cmap 판정은 [`scripts/face-coverage.mjs`](scripts/face-coverage.mjs) |
+| [`scripts/font-attribution.mjs`](scripts/font-attribution.mjs) | 1 · 5 | STEP 5 항목 6의 렌더·코퍼스 폰트 귀속 검사. 실행 범위와 종료 조건은 스크립트 머리말을 읽는다 |
 | [`scripts/adapters/<라이브러리>.mjs`](scripts/adapters/tailwind.mjs) | — | [`ADAPTERS.md`](ADAPTERS.md) 여섯 질문의 답을 코드로. 목록에 없는 라이브러리는 새 어댑터 파일을 이 SKILL에 추가한다 |
 
 프로젝트 루트에서 `node ~/.agents/skills/design-substrate/scripts/<detect|capture|font-attribution>.mjs --config <설정 파일>`로
@@ -197,17 +197,15 @@ S1에서 세션이 끊기므로 **다음 세션은 대화가 아니라 파일을
   근거는 theme 스코프가 글꼴(`font-family` · `--font-*` · `@font-face`)을 선언하지 않는다는 것이다 —
   선언하는 프로젝트는 theme마다 `theme`과 `--out`을 바꿔 한 번씩 돌린다. 행 · viewport · URL은
   `capture`의 것을 그대로 쓴다.
-  - `installedAllowed`는 `{ selector?, scripts? }` 항목의 목록이다. 한 항목은 **가진 키가 전부** 맞을 때
-    허용하고(그 selector 안 **그리고** 그 문자 분류), 항목끼리는 하나만 맞으면 된다. 분류 이름은
-    `Han` · `Hiragana` · `Katakana` · `CJK-punct` · `Emoji` · `Symbol`(U+2190–2BFF를 글자로 그리는 것,
-    ♪ ★ ▶ 포함) 등이다. 두 키를 따로 허용하던 옛 객체 형식은 exit 2다 — 콘텐츠 요소를 허용하면 그 안의
-    라틴 폴백 결함이, 기호 분류를 허용하면 UI 문구의 기호가 같이 통과했다(tubrief-v2 #97).
-  - `corpus()`는 `[{ name, row, selector, text, snapshot? }]`를 돌려준다. 페이지가 DB에서 읽어 오는 글을
-    출처마다 한 항목으로 두고, `row`는 그 글을 보여 주는 manifest 행, `selector`는 그 글을 담는 요소다.
-    측정기는 `text`의 서로 다른 글자를 locale마다 그 요소 안에 넣어 face를 묻는다. 행 표본은 고른 화면이
-    싣는 글자만 보기 때문이다 — TuBrief 16행은 기호가 나오는 자리를 3곳으로 보고했는데, DB에는 기호가 든
-    행이 다섯 출처에 1,000개 넘게 있었다(tubrief-v2 #96). 요소가 없거나 load 직후 layout이 없으면 측정
-    실패다.
+  - `installedAllowed`는 `{ selector?: string, scripts?: string[] }` 항목의 목록이다. 각 항목에는 비어 있지
+    않은 CSS selector 또는 비어 있지 않은 문자 분류 목록이 하나 이상 있어야 한다. 한 항목 안의 조건은
+    AND, 항목 사이는 OR다. 분류 이름은 `Han` · `Hiragana` · `Katakana` · `CJK-punct` · `Emoji` ·
+    `Symbol`(U+2190–2BFF를 글자로 그리는 것, ♪ ★ ▶ 포함) 등이다.
+  - `corpus()`는 출처마다 한 항목인 `[{ name, row, selector, text, snapshot? }]`를 반환한다. `row`는
+    `capture.rows`에 있는 행의 `id` 값이며 행 객체가 아니다. `selector`는 그 행의 페이지에서 글을 담는
+    요소의 CSS selector, `text`는 조사할 글을 합친 문자열이다. `snapshot`은 선택 출처 기록이다. corpus
+    측정 실패를 처리할 때는 [`scripts/font-attribution.mjs`](scripts/font-attribution.mjs)의 머리말과
+    `readCorpusEntry`를 읽는다.
 
 호출부가 URL을 만들어 넘기는 일 이상을 하거나, 프로젝트 `scripts/`에 판정 코드가 생기면 결함이다.
 ledger의 asset 행은 이 SKILL 안의 스크립트만 잡는 장치로 받는다(`design-loop` 「asset의 경계」).
@@ -410,7 +408,7 @@ manifest를 그대로 다시 돌린다 — 같은 행, 같은 theme, 같은 view
 | 4a | state 구분 — 면 | hover · selected · disabled가 각 primitive에서 바탕 대비 **면의** ΔL ≥ 0.06으로 구분된다 |
 | 4b | state 구분 — focus | **포커스 표시**(「용어」 — focus가 idle에 비해 새로 칠하거나 바꾼 층)가 있고, 그 층이 **인접 바탕 대비 ≥ 3:1**(WCAG 2.2 SC 1.4.11 non-text contrast)이며 두께가 0보다 크다. idle에도 있는 색은 통과 근거가 아니다. 판정은 커널 `focusIndicator`(「실행 수단」). 반투명 포커스 표시는 표본 바탕에서 통과해도 결함이다 — STEP 1 목록 7 |
 | 5 | 기능 보존 | manifest의 스모크 흐름 전부가 기대 결과에 도달 |
-| 6 | 렌더 폰트 귀속 | 출하 locale 전부 × viewport 2개에서 OS face(페이지가 싣지 않은 face)가 그린 글리프가 설정 `installedAllowed` 밖에 0개. 기본 상태만이 아니라 보이는 탭을 하나씩 고르고 닫힌 disclosure(`[aria-expanded="false"][aria-controls]`)를 하나씩 연 상태까지 센다 — 닫힌 자막 패널 안의 1,848 글리프가 기본 상태에서 0으로 읽혔다. 문자는 Unicode Script가 아니라 블록으로 가른다(`ー` U+30FC는 Script=Common인 가나 부호). 설정 `corpus`의 글자도 같은 기준이다. 떨어진 글리프마다 **이유**가 붙는다 — 스택 face의 cmap에 있는데 `unicode-range`가 뺐다, 또는 어느 스택 face에도 없다. 고치는 방향이 반대다(tubrief-v2 #94). range는 주장하는데 파일 cmap에 없는 글자가 나오면 **헛다운로드**로 실패다 — 패키지의 선언은 커버리지의 증거가 아니다(tubrief-v2 #95) |
+| 6 | 렌더 폰트 귀속 | 출하 locale 전부 × viewport 2개에서 OS face(페이지가 싣지 않은 face)가 그린 글리프가 설정 `installedAllowed` 밖에 0개. 기본 상태만이 아니라 보이는 탭을 하나씩 고르고 닫힌 disclosure(`[aria-expanded="false"][aria-controls]`)를 하나씩 연 상태까지 센다 — 닫힌 자막 패널 안의 1,848 글리프가 기본 상태에서 0으로 읽혔다. 문자는 Unicode Script가 아니라 블록으로 가른다(`ー` U+30FC는 Script=Common인 가나 부호). 설정 `corpus`의 글자도 같은 허용 기준이며, 헛다운로드 face와 측정 실패가 0건이다. 실패 원인을 판별할 때는 [`scripts/font-attribution.mjs`](scripts/font-attribution.mjs)와 [`scripts/face-coverage.mjs`](scripts/face-coverage.mjs)의 머리말을 먼저 읽는다 |
 
 **4를 둘로 나눈 이유:** focus는 대개 면이 아니라 **링**으로 표현된다. 면의 ΔL로 재면 링이 아무리
 잘 보여도 구조적으로 0이 나오므로, 그 기준으로는 링 기반 라이브러리의 focus가 영구히 통과할 수
