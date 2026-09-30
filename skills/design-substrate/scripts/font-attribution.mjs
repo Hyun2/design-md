@@ -27,14 +27,43 @@
  *     U+30FB are Script=Common but are kana marks, and were counted as 139
  *     undeclared glyphs on `/ja`. The Kana blocks classify by block.
  *
- * Exit 1 when any installed-face glyph falls outside the policy, or when a row
- * failed to measure: it could not load, it read no text-bearing element, or a
- * node or character returned no face (an unread face is not a web face).
+ * Each installed-face glyph also names why it fell (`face-coverage.mjs`): a
+ * stack face has it in its cmap and its `unicode-range` leaves it out, or no
+ * stack face has it. The two call for opposite fixes, and a report that said
+ * only which face drew the glyph was read as the second when it was the first
+ * (2026-09 TuBrief #76).
+ *
+ * Two readings reach past the manifest rows:
+ *   - Wasted downloads: a face whose range claims a character that occurs,
+ *     whose file does not have it. The browser fetches the file and still
+ *     falls through.
+ *   - The corpus (`fonts.corpus`): text the pages read from a database holds
+ *     characters no chosen row shows. 16 rows showed symbols in three places;
+ *     the tables held them in 1,000-odd rows across five sources. Each entry's
+ *     distinct characters are set inside the element that shows that text,
+ *     in every locale, and judged like a rendered glyph.
+ *
+ * Exit 1 when any installed-face glyph (rendered or corpus) falls outside the
+ * policy, when a face is a wasted download, or when a row failed to measure:
+ * it could not load, it read no text-bearing element, a node or character
+ * returned no face (an unread face is not a web face), a face file or
+ * stylesheet could not be read, or a corpus element was not found.
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { flag, loadConfig } from "./config.mjs";
+import {
+  CmapProbe,
+  codePointLabel,
+  collectFontFaceRules,
+  faceReport,
+  fallReason,
+  indexRules,
+  probePairs,
+  stackRules,
+  wastedFaces,
+} from "./face-coverage.mjs";
 
 const require = createRequire(path.join(process.cwd(), "package.json"));
 let chromium;
@@ -47,8 +76,18 @@ try {
 const { config } = await loadConfig();
 const capture = config.capture;
 const fonts = config.fonts;
-if (!fonts?.locales?.length || !fonts.installedAllowed) {
-  console.error("config.fonts needs `locales` and `installedAllowed` (design-substrate SKILL.md STEP 7)");
+const allowList = fonts?.installedAllowed;
+if (
+  !fonts?.locales?.length ||
+  !Array.isArray(allowList) ||
+  allowList.some((e) => !e || (!e.selector && !e.scripts?.length))
+) {
+  console.error(
+    "config.fonts needs `locales` and `installedAllowed`: a list of { selector?, scripts? } entries, each with at least one key.\n" +
+      "An entry allows an installed-face character when every key it has matches — inside `selector` AND of a `scripts` class.\n" +
+      "The single-object form { scripts, selector } is gone: it allowed either key alone, so a content selector passed every\n" +
+      "character inside it and a symbol class passed every symbol in interface text (design-substrate SKILL.md STEP 7).",
+  );
   process.exit(2);
 }
 const mode = flag("mode") ?? "before";
@@ -58,11 +97,23 @@ const only = flag("only") ?? "";
 /* One theme is read: faces follow the theme only where a theme scope declares
  * fonts, and such a project runs once per theme (SKILL.md 「실행 수단」). */
 const theme = fonts.theme ?? capture.themes[0];
-const allowedScripts = new Set(fonts.installedAllowed.scripts ?? []);
-const allowedSelector = fonts.installedAllowed.selector ?? null;
+const selectors = allowList.map((e) => e.selector ?? null);
+/* `inside[i]`: the element is within entry i's selector (true when the entry
+ * has none). */
+const allows = (inside, script) => allowList.some((e, i) => inside[i] && (!e.scripts || e.scripts.includes(script)));
 
+/* A class per character for `installedAllowed.scripts`. `Symbol` is U+2190-2BFF
+ * (arrows, maths, technical, enclosed alphanumerics, box drawing, geometric
+ * shapes, dingbats) drawn as text: without it these read as "Common" beside
+ * every punctuation mark, and no policy could name them. In that block
+ * `Extended_Pictographic` does not make an emoji — ♪ ★ ▶ carry it and draw
+ * as text unless the character presents as emoji by default or a VS16 asks
+ * for it. */
 function scriptOf(ch) {
   const cp = ch.codePointAt(0);
+  const symbolBlock = cp >= 0x2190 && cp <= 0x2bff;
+  if (/\p{Emoji_Presentation}|\uFE0F|\u200D/u.test(ch)) return "Emoji";
+  if (symbolBlock) return "Symbol";
   if (/\p{Extended_Pictographic}/u.test(ch)) return "Emoji";
   if (cp >= 0x3040 && cp <= 0x309f) return "Hiragana";
   if (cp >= 0x30a0 && cp <= 0x30ff) return "Katakana";
@@ -79,7 +130,7 @@ function scriptOf(ch) {
  * subtree (ProseMirror on a post form) re-renders a node whose attributes
  * change, and the node read next is gone. Serialised into the page, so it must
  * be self-contained. */
-function collectTextNodes(allowedSelector) {
+function collectTextNodes(selectors) {
   /* Text a sighted reader never sees: a screen-reader copy clipped to a
    * pixel (KaTeX's MathML twin, `sr-only`). */
   const clippedAway = (el) => {
@@ -110,7 +161,7 @@ function collectTextNodes(allowedSelector) {
       text,
       path: trail.join(">"),
       fontFamily: cs.fontFamily,
-      allowed: allowedSelector ? !!el.closest(allowedSelector) : false,
+      inside: selectors.map((s) => (s ? !!el.closest(s) : true)),
       cls: (el.getAttribute("class") ?? "").slice(0, 120),
     });
     els.push(el);
@@ -197,7 +248,7 @@ async function perChar(page, cdp, idx) {
  * the state is read again after it settles, and a third miss is unread. */
 async function measureState(page, cdp, nodes, state, tally, attempt = 0) {
   try {
-    const records = await page.evaluate(collectTextNodes, allowedSelector);
+    const records = await page.evaluate(collectTextNodes, selectors);
     if (attempt === 0) tally.textElements += records.length;
     await cdp.send("DOM.getDocument", { depth: -1 });
     for (const r of records) {
@@ -316,13 +367,166 @@ async function walkStates(page, cdp, nodes, tally) {
   }
 }
 
+/* A character worth asking a face about: not a space, control, format
+ * character or combining mark — those lay out as nothing on their own. */
+const PROBE_SKIP = /[\p{Z}\p{Cc}\p{Cf}\p{M}]/u;
+
+/* Opens `url` in a new page of `context`, waiting for the network to go quiet
+ * and falling back to the DOM being ready. */
+async function openPage(context, url) {
+  const page = await context.newPage();
+  const cdp = await context.newCDPSession(page);
+  await cdp.send("DOM.enable");
+  await cdp.send("CSS.enable");
+  try {
+    await page.goto(url, { waitUntil: "networkidle", timeout: 45000 });
+  } catch {
+    try {
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 });
+    } catch (error) {
+      await page.close();
+      return { blocker: error.message.split("\n")[0] };
+    }
+  }
+  await settle(page);
+  return { page, cdp };
+}
+
+/* Asks the probe everything a page's characters raise, then names why each
+ * fallen glyph fell (`fallen[].fell`, `fallen[].faces`) and returns the
+ * wasted downloads. `uses`: every { fontFamily, cp } set on the page;
+ * `fallen`: installed-face glyphs outside the policy, each with `fontFamily`
+ * and `codePoint`. Returns the number of questions left unanswered. */
+async function judgeCoverage(byFamily, uses, fallen, probe) {
+  const pairs = [];
+  for (const u of uses) pairs.push(...probePairs(stackRules(byFamily, u.fontFamily), u.cp, { everyFace: false }));
+  for (const f of fallen) pairs.push(...probePairs(stackRules(byFamily, f.fontFamily), f.codePoint, { everyFace: true }));
+  await probe.has(pairs);
+  for (const f of fallen) {
+    f.faces = faceReport(stackRules(byFamily, f.fontFamily), f.codePoint, probe);
+    f.fell = fallReason(f.faces);
+  }
+  const wasted = [];
+  for (const u of uses) {
+    for (const r of wastedFaces(stackRules(byFamily, u.fontFamily), u.cp, probe)) wasted.push({ family: r.family, url: r.url, cp: u.cp });
+  }
+  return { wasted, unanswered: pairs.filter(([url, cp]) => probe.answer(url, cp) == null).length };
+}
+
+/* Distinct { fontFamily, cp } over the text of every read element. */
+function usesOf(nodes) {
+  const seen = new Map();
+  for (const n of nodes) {
+    for (const ch of n.text) {
+      if (PROBE_SKIP.test(ch)) continue;
+      const cp = ch.codePointAt(0);
+      seen.set(`${n.fontFamily}\u0000${cp}`, { fontFamily: n.fontFamily, cp });
+    }
+  }
+  return [...seen.values()];
+}
+
+/* Records wasted downloads under one key per face file and character, with
+ * every place it happened. */
+function recordWasted(wastedAll, wasted, where) {
+  for (const w of wasted) {
+    const key = `${w.url} ${w.cp}`;
+    if (!wastedAll.has(key)) wastedAll.set(key, { family: w.family, url: w.url, cp: codePointLabel(w.cp), ch: String.fromCodePoint(w.cp), where: [] });
+    wastedAll.get(key).where.push(where);
+  }
+}
+
+const describeFall = (f) =>
+  `${f.cp} "${f.ch}" ×${f.count} in ${f.face} [OS]${f.state ? ` (${f.state}, class "${f.cls}")` : ""} — ${f.fell}`;
+
+/* The corpus entries (`fonts.corpus`): the text a page reads from a database,
+ * one entry per source, each naming a manifest row and the element that shows
+ * it. The config owns reading it (a snapshot file, a query); this script
+ * reduces it to distinct grapheme clusters. */
+async function loadCorpus() {
+  if (!fonts.corpus) return [];
+  const entries = await fonts.corpus();
+  const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+  return entries.map((e) => {
+    if (!e?.name || !e.row || !e.selector || typeof e.text !== "string") {
+      console.error("config.fonts.corpus() must return [{ name, row, selector, text }] (design-substrate SKILL.md STEP 7)");
+      process.exit(2);
+    }
+    const row = capture.rows.find((r) => r.id === e.row);
+    if (!row) {
+      console.error(`config.fonts.corpus: entry "${e.name}" names row "${e.row}", which is not in capture.rows`);
+      process.exit(2);
+    }
+    const graphemes = new Set();
+    for (const { segment } of segmenter.segment(e.text)) if (!/^\s+$/.test(segment)) graphemes.add(segment);
+    return { name: e.name, row, selector: e.selector, snapshot: e.snapshot ?? null, graphemes: [...graphemes] };
+  });
+}
+
+/* Sets every distinct character of `entry` inside the first element matching
+ * its selector and asks which face drew each. A character the policy allows
+ * whatever face draws it (Han under a script-only entry) is not asked about.
+ * Returns the per-locale record and the installed-face characters outside the
+ * policy. */
+async function readCorpusEntry(page, cdp, entry) {
+  const placed = await page.evaluate(
+    ({ selector, selectors }) => {
+      const el = document.querySelector(selector);
+      if (!el) return { missing: "no element matches" };
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 && r.height === 0) return { missing: "element has no layout after load" };
+      window.__faCorpusHost = el;
+      return { fontFamily: getComputedStyle(el).fontFamily, inside: selectors.map((s) => (s ? !!el.closest(s) : true)) };
+    },
+    { selector: entry.selector, selectors },
+  );
+  if (placed.missing) return { missing: placed.missing };
+  const asked = entry.graphemes.filter((g) => !allows(placed.inside, scriptOf(g)));
+  await page.evaluate((graphemes) => {
+    const box = document.createElement("span");
+    box.setAttribute("data-fa-corpus", "");
+    for (const g of graphemes) {
+      const s = document.createElement("span");
+      s.textContent = g;
+      box.append(s);
+    }
+    window.__faCorpusHost.append(box);
+    void box.getBoundingClientRect();
+  }, asked);
+  await page.evaluate(() => document.fonts.ready);
+  const { root } = await cdp.send("DOM.getDocument", { depth: -1 });
+  const { nodeIds } = await cdp.send("DOM.querySelectorAll", { nodeId: root.nodeId, selector: "[data-fa-corpus] > span" });
+  const fallen = [];
+  const unread = [];
+  for (let i = 0; i < asked.length; i++) {
+    const { fonts: faces } = nodeIds[i] ? await cdp.send("CSS.getPlatformFontsForNode", { nodeId: nodeIds[i] }) : { fonts: [] };
+    const face = faces.find((f) => !f.isCustomFont) ?? faces[0];
+    const cp = [...asked[i]].map((u) => codePointLabel(u.codePointAt(0))).join(" ");
+    if (!face) unread.push(cp);
+    else if (!face.isCustomFont) {
+      fallen.push({ ch: asked[i], cp, count: 1, script: scriptOf(asked[i]), face: face.familyName, fontFamily: placed.fontFamily, codePoint: asked[i].codePointAt(0) });
+    }
+  }
+  await page.evaluate(() => document.querySelector("[data-fa-corpus]")?.remove());
+  const uses = entry.graphemes
+    .map((g) => g.codePointAt(0))
+    .filter((cp) => !PROBE_SKIP.test(String.fromCodePoint(cp)))
+    .map((cp) => ({ fontFamily: placed.fontFamily, cp }));
+  return { fontFamily: placed.fontFamily, asked: asked.length, fallen, unread, uses };
+}
+
 async function main() {
   const setup = await capture.setup();
+  const corpus = await loadCorpus();
   const browser = await chromium.launch();
+  const probe = new CmapProbe(browser);
+  await probe.open();
   const rows = only ? capture.rows.filter((r) => only.split(",").includes(r.id)) : capture.rows;
-  const sessions = [...new Set(rows.map((r) => capture.session(r)))];
+  const sessions = [...new Set([...rows, ...corpus.map((e) => e.row)].map((r) => capture.session(r)))];
   const results = {};
+  const corpusResults = {};
   const failed = [];
+  const wastedAll = new Map();
   let undeclaredTotal = 0;
 
   for (const viewport of capture.viewports) {
@@ -349,26 +553,16 @@ async function main() {
         for (const lang of fonts.locales) {
           const key = `${row.id}__${lang}__${viewport.name}`;
           const url = capture.url(row, { base, lang, theme }, setup);
-          const page = await context.newPage();
-          const cdp = await context.newCDPSession(page);
-          await cdp.send("DOM.enable");
-          await cdp.send("CSS.enable");
-          try {
-            await page.goto(url, { waitUntil: "networkidle", timeout: 45000 });
-          } catch {
-            try {
-              await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 });
-            } catch (error) {
-              results[key] = { blocker: error.message.split("\n")[0], url };
-              failed.push(`${key} (not loaded)`);
-              await page.close();
-              continue;
-            }
+          const { page, cdp, blocker } = await openPage(context, url);
+          if (blocker) {
+            results[key] = { blocker, url };
+            failed.push(`${key} (not loaded)`);
+            continue;
           }
-          await settle(page);
           const nodes = new Map();
           const tally = { textElements: 0, unread: [] };
           await walkStates(page, cdp, nodes, tally);
+          const { byFamily, unreadable } = await readRules(page);
 
           let glyphs = 0;
           let installedAllowed = 0;
@@ -387,16 +581,24 @@ async function main() {
                 continue;
               }
               if (c.custom) continue;
-              if (n.allowed || allowedScripts.has(c.script)) installedAllowed += c.count;
+              if (allows(n.inside, c.script)) installedAllowed += c.count;
               else {
                 installedUndeclared += c.count;
-                undeclared.push({ ch: c.ch, cp: c.cp, count: c.count, script: c.script, face: c.face, state: n.state, text: n.text.slice(0, 60), cls: n.cls });
+                undeclared.push({ ch: c.ch, cp: c.cp, count: c.count, script: c.script, face: c.face, state: n.state, text: n.text.slice(0, 60), cls: n.cls, fontFamily: n.fontFamily, codePoint: c.ch.codePointAt(0) });
               }
             }
           }
+          const { wasted, unanswered } = await judgeCoverage(byFamily, usesOf(nodes.values()), undeclared, probe);
+          recordWasted(wastedAll, wasted, key);
           if (tally.textElements === 0) failed.push(`${key} (no text-bearing element read)`);
           if (tally.unread.length) failed.push(`${key} (${tally.unread.length} unread faces)`);
+          if (unreadable.length) failed.push(`${key} (${unreadable.length} stylesheets unreadable: ${unreadable.join(", ")})`);
+          if (unanswered) failed.push(`${key} (${unanswered} face cmap questions unanswered)`);
           undeclaredTotal += installedUndeclared;
+          for (const u of undeclared) {
+            delete u.fontFamily;
+            delete u.codePoint;
+          }
           results[key] = {
             url,
             row: row.id,
@@ -413,29 +615,94 @@ async function main() {
           const worst = undeclared.sort((a, b) => b.count - a.count)[0];
           console.log(
             `${key.padEnd(44)} glyphs=${glyphs} installed-allowed=${installedAllowed} installed-undeclared=${installedUndeclared}` +
-              (worst ? ` — e.g. ${worst.cp} "${worst.ch}" ×${worst.count} in ${worst.face} [OS] (${worst.state}, class "${worst.cls}")` : ""),
+              (worst ? ` — e.g. ${describeFall(worst)}` : ""),
           );
           await page.close();
+        }
+      }
+      /* The corpus is read once per locale, at the first viewport: which face
+       * draws a character does not change with the width. */
+      if (viewport === capture.viewports[0]) {
+        for (const entry of corpus.filter((e) => capture.session(e.row) === session)) {
+          for (const lang of fonts.locales) {
+            const key = `corpus:${entry.name}__${lang}`;
+            const url = capture.url(entry.row, { base, lang, theme }, setup);
+            const { page, cdp, blocker } = await openPage(context, url);
+            if (blocker) {
+              corpusResults[key] = { blocker, url };
+              failed.push(`${key} (not loaded)`);
+              continue;
+            }
+            const read = await readCorpusEntry(page, cdp, entry);
+            if (read.missing) {
+              corpusResults[key] = { url, selector: entry.selector, missing: read.missing };
+              failed.push(`${key} (${entry.selector}: ${read.missing})`);
+              await page.close();
+              continue;
+            }
+            const { byFamily, unreadable } = await readRules(page);
+            const { wasted, unanswered } = await judgeCoverage(byFamily, read.uses, read.fallen, probe);
+            recordWasted(wastedAll, wasted, key);
+            if (read.unread.length) failed.push(`${key} (${read.unread.length} unread faces)`);
+            if (unreadable.length) failed.push(`${key} (${unreadable.length} stylesheets unreadable)`);
+            if (unanswered) failed.push(`${key} (${unanswered} face cmap questions unanswered)`);
+            undeclaredTotal += read.fallen.length;
+            for (const f of read.fallen) {
+              delete f.fontFamily;
+              delete f.codePoint;
+            }
+            corpusResults[key] = {
+              url,
+              row: entry.row.id,
+              selector: entry.selector,
+              snapshot: entry.snapshot,
+              characters: entry.graphemes.length,
+              asked: read.asked,
+              installedUndeclared: read.fallen.length,
+              undeclared: read.fallen,
+              unread: read.unread,
+            };
+            console.log(
+              `${key.padEnd(44)} characters=${entry.graphemes.length} asked=${read.asked} installed-undeclared=${read.fallen.length}` +
+                (read.fallen[0] ? ` — e.g. ${describeFall(read.fallen[0])}` : ""),
+            );
+            await page.close();
+          }
         }
       }
       await context.close();
     }
   }
   await browser.close();
+  if (probe.failures.length) failed.push(`face files unreadable:\n    ${probe.failures.join("\n    ")}`);
 
+  const wastedList = [...wastedAll.values()];
+  for (const w of wastedList) {
+    console.log(`wasted download: ${w.family} ${w.url} claims ${w.cp} "${w.ch}" — not in its cmap (${w.where.length} places, e.g. ${w.where[0]})`);
+  }
   await mkdir(outRoot, { recursive: true });
   const outFile = path.join(outRoot, `fonts-${mode}.json`);
   await writeFile(
     outFile,
-    JSON.stringify({ mode, base, theme, locales: fonts.locales, capturedAt: new Date().toISOString(), results }, null, 2),
+    JSON.stringify(
+      { mode, base, theme, locales: fonts.locales, capturedAt: new Date().toISOString(), results, corpus: corpusResults, wasted: wastedList },
+      null,
+      2,
+    ),
   );
-  console.log(`font-attribution: ${Object.keys(results).length} rows -> ${outFile}`);
+  console.log(`font-attribution: ${Object.keys(results).length} rows, ${Object.keys(corpusResults).length} corpus reads -> ${outFile}`);
   console.log(`installed-face glyphs outside the policy: ${undeclaredTotal}`);
+  console.log(`wasted downloads: ${wastedList.length}`);
   if (failed.length) {
     console.error(`measurement failed:\n  ${failed.join("\n  ")}`);
     process.exitCode = 1;
   }
-  if (undeclaredTotal > 0) process.exitCode = 1;
+  if (undeclaredTotal > 0 || wastedList.length > 0) process.exitCode = 1;
+}
+
+async function readRules(page) {
+  const { rules, unreadable } = await page.evaluate(collectFontFaceRules);
+  return { byFamily: indexRules(rules), unreadable };
 }
 
 await main();

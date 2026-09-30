@@ -1,14 +1,16 @@
 /**
  * The `font-attribution.mjs` fixture: one static page, one locale, one
- * viewport. Run from any project root that resolves Playwright:
+ * viewport, one corpus entry. Run from any project root that resolves
+ * Playwright:
  *
  *   node ~/.agents/skills/design-substrate/scripts/font-attribution.mjs \
  *     --config ~/.agents/skills/design-substrate/fixtures/font-attribution/config.mjs
  *
- * Exit 0 on `page.html` as committed. A mutation that puts an undeclared
- * script into the closed disclosure inside the second tab must exit 1 and name
- * that state.
+ * Exit 0 on `page.html` and `corpus.json` as committed. Each mutation listed
+ * in `page.html` must exit 1 and name its defect.
  */
+import { readFile } from "node:fs/promises";
+
 const page = new URL("./page.html", import.meta.url).href;
 
 export default {
@@ -26,6 +28,15 @@ export default {
   },
   fonts: {
     locales: ["en"],
-    installedAllowed: { scripts: ["Latin", "Digit", "Hiragana", "Katakana", "Han"] },
+    installedAllowed: [
+      { scripts: ["Latin", "Digit", "Hiragana", "Katakana", "Han"] },
+      { selector: "[data-content-text]", scripts: ["Symbol"] },
+    ],
+    corpus: async () =>
+      JSON.parse(await readFile(new URL("./corpus.json", import.meta.url), "utf8")).map((e) => ({
+        ...e,
+        row: "fixture",
+        selector: "[data-content-text]",
+      })),
   },
 };

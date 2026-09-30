@@ -1,23 +1,39 @@
 <!doctype html>
 <!--
-  Input for `font-attribution.mjs` (config.mjs beside it). No web font is
-  loaded, so every glyph is an installed face and the policy decides alone.
-  Allowed: Latin, Digit, Hiragana, Katakana, Han — not Common, so the kana
-  marks ー (U+30FC) and ・ (U+30FB), Script=Common, pass only when classified
-  by block. No punctuation elsewhere: it is Common too.
+  Input for `font-attribution.mjs` (config.mjs beside it).
+
+  One web face, "Fixture Main" (KaTeX_Main-Regular.woff2, MIT — the LICENSE
+  file beside it), claims Basic Latin and the Arrows block. Its cmap has → and
+  lacks ♪ ▲. Everything else is an installed face and the policy decides:
+  Latin, Digit, Hiragana, Katakana, Han anywhere; Symbol only inside
+  [data-content-text]. Not Common, so the kana marks ー (U+30FC) and ・
+  (U+30FB), Script=Common, pass only when classified by block. No punctuation
+  outside the web face's range: it is Common too.
 
   Text sits where a default-state read never reaches:
     - the second tab's panel, and inside it a closed disclosure;
     - a card with content-visibility: auto far below the fold.
-  Every run must read all of it: the closed disclosure holds the one line a
-  mutation turns into an undeclared script.
+  The content element holds ♪, a Symbol the web face lacks: allowed there.
+  The corpus (corpus.json) is set inside the same element.
+
+  Mutations, each reverted next:
+    - an undeclared script inside the closed disclosure (tubrief-v2 #75);
+    - ▲ in interface text, outside the content element (#97);
+    - the web face's range narrowed to leave → out, while its cmap has it (#94);
+    - a second rule of the family claiming U+2600-26FF, whose file lacks ♪ (#95);
+    - a character in corpus.json that falls to an installed face (#96).
 -->
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <title>font-attribution fixture</title>
     <style>
-      body { font-family: sans-serif; }
+      @font-face {
+        font-family: "Fixture Main";
+        src: url("./KaTeX_Main-Regular.woff2") format("woff2");
+        unicode-range: U+0020-007E, U+2190-21FF;
+      }
+      body { font-family: "Fixture Main", sans-serif; }
       [hidden] { display: none; }
       .far { margin-top: 3000px; content-visibility: auto; contain-intrinsic-size: 0 40px; }
     </style>
@@ -25,7 +41,9 @@
   <body>
     <main>
       <p>Visible in the default state</p>
+      <p><a href="#next">Next →</a></p>
       <p lang="ja">テーマ・ツール</p>
+      <p data-content-text>♪ Tune</p>
       <div role="tablist">
         <button role="tab" aria-selected="true" aria-controls="panel-a" id="tab-a">First</button>
         <button role="tab" aria-selected="false" aria-controls="panel-b" id="tab-b">Second</button>
