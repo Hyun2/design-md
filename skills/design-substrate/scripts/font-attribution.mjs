@@ -457,8 +457,14 @@ async function loadCorpus() {
       console.error(`config.fonts.corpus: entry "${e.name}" names row "${e.row}", which is not in capture.rows`);
       process.exit(2);
     }
+    /* A cluster of nothing but marks, format or control characters lays out
+     * as nothing on its own — a corpus of distinct code points, one per line,
+     * separates a combining mark from its base. Rendered rows judge those in
+     * place. */
     const graphemes = new Set();
-    for (const { segment } of segmenter.segment(e.text)) if (!/^\s+$/.test(segment)) graphemes.add(segment);
+    for (const { segment } of segmenter.segment(e.text)) {
+      if (!/^[\s\p{M}\p{Cf}\p{Cc}]+$/u.test(segment)) graphemes.add(segment);
+    }
     return { name: e.name, row, selector: e.selector, snapshot: e.snapshot ?? null, graphemes: [...graphemes] };
   });
 }
