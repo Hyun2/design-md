@@ -237,22 +237,38 @@ export function fallReason(report) {
   return "absent (no stack face has it)";
 }
 
-/* Faces the browser downloads for `cp` and finds empty: walking the stack as
- * the browser does, every claiming face of a family is fetched before the
- * next family is tried, and the walk stops at the first family one of whose
- * claiming faces has the glyph. Returns the claiming, glyph-less faces met on
- * the way. */
-export function wastedFaces(rules, cp, probe) {
-  const wasted = [];
-  const families = [...new Set(rules.map((r) => r.family.toLowerCase()))];
-  for (const family of families) {
-    const claiming = rules.filter((r) => r.family.toLowerCase() === family && r.url && inRanges(r.ranges, cp));
-    if (!claiming.length) continue;
-    const answers = claiming.map((r) => [r, probe.answer(r.url, cp)]);
-    for (const [r, has] of answers) if (has === false) wasted.push(r);
-    if (answers.some(([, has]) => has)) break;
+/* Face files a page downloads and draws nothing from. Walking the stack as the
+ * browser does, every claiming face of a family is fetched before the next
+ * family is tried, and the walk stops at the first family one of whose
+ * claiming faces has the glyph. A file fetched for one character it lacks is
+ * not waste when it draws another character of the same page — NanumSquareNeo
+ * Text claims Latin-1 and lacks é on purpose, so `é` falls to Noto Sans from
+ * a file that is drawing the page's Hangul (app.css). Waste is a file whose
+ * every reached character is missing from it: the Noto Sans Arabic math and
+ * symbols subsets on a page whose only claimed character is →.
+ * `uses`: [{ fontFamily, cp }] of one page (or one corpus read). Returns
+ * [{ family, url, cps }]. */
+export function wastedFaces(byFamily, uses, probe) {
+  const reached = new Map(); // url → { family, cps: Set, draws: bool }
+  for (const { fontFamily, cp } of uses) {
+    const rules = stackRules(byFamily, fontFamily);
+    for (const family of [...new Set(rules.map((r) => r.family.toLowerCase()))]) {
+      const claiming = rules.filter((r) => r.family.toLowerCase() === family && r.url && inRanges(r.ranges, cp));
+      if (!claiming.length) continue;
+      let drawn = false;
+      for (const r of claiming) {
+        const has = probe.answer(r.url, cp);
+        if (!reached.has(r.url)) reached.set(r.url, { family: r.family, cps: new Set(), draws: false });
+        const entry = reached.get(r.url);
+        entry.cps.add(cp);
+        if (has) entry.draws = drawn = true;
+      }
+      if (drawn) break;
+    }
   }
-  return wasted;
+  return [...reached.entries()]
+    .filter(([, e]) => !e.draws)
+    .map(([url, e]) => ({ family: e.family, url, cps: [...e.cps] }));
 }
 
 /* The [url, cp] pairs `faceReport` and `wastedFaces` need answered. */

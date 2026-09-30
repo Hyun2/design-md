@@ -34,9 +34,9 @@
  * (2026-09 TuBrief #76).
  *
  * Two readings reach past the manifest rows:
- *   - Wasted downloads: a face whose range claims a character that occurs,
- *     whose file does not have it. The browser fetches the file and still
- *     falls through.
+ *   - Wasted downloads: a face file the page fetches because its range
+ *     claims a character there, and that draws none of those characters
+ *     (`wastedFaces`). The browser fetches it and still falls through.
  *   - The corpus (`fonts.corpus`): text the pages read from a database holds
  *     characters no chosen row shows. 16 rows showed symbols in three places;
  *     the tables held them in 1,000-odd rows across five sources. Each entry's
@@ -367,9 +367,11 @@ async function walkStates(page, cdp, nodes, tally) {
   }
 }
 
-/* A character worth asking a face about: not a space, control, format
- * character or combining mark — those lay out as nothing on their own. */
-const PROBE_SKIP = /[\p{Z}\p{Cc}\p{Cf}\p{M}]/u;
+/* A character that lays out as nothing on its own: a space, control, format
+ * character or combining mark, and the two letters Unicode makes a
+ * SpacingMark (Thai SARA AM U+0E33, Lao AM U+0EB3), which read with no face
+ * when a one-per-line corpus splits them from their base. */
+const ALONE_EMPTY = /^[\s\p{Z}\p{Cc}\p{Cf}\p{M}\u0E33\u0EB3]+$/u;
 
 /* Opens `url` in a new page of `context`, waiting for the network to go quiet
  * and falling back to the DOM being ready. */
@@ -406,10 +408,7 @@ async function judgeCoverage(byFamily, uses, fallen, probe) {
     f.faces = faceReport(stackRules(byFamily, f.fontFamily), f.codePoint, probe);
     f.fell = fallReason(f.faces);
   }
-  const wasted = [];
-  for (const u of uses) {
-    for (const r of wastedFaces(stackRules(byFamily, u.fontFamily), u.cp, probe)) wasted.push({ family: r.family, url: r.url, cp: u.cp });
-  }
+  const wasted = wastedFaces(byFamily, uses, probe);
   return { wasted, unanswered: pairs.filter(([url, cp]) => probe.answer(url, cp) == null).length };
 }
 
@@ -418,7 +417,7 @@ function usesOf(nodes) {
   const seen = new Map();
   for (const n of nodes) {
     for (const ch of n.text) {
-      if (PROBE_SKIP.test(ch)) continue;
+      if (ALONE_EMPTY.test(ch)) continue;
       const cp = ch.codePointAt(0);
       seen.set(`${n.fontFamily}\u0000${cp}`, { fontFamily: n.fontFamily, cp });
     }
@@ -426,13 +425,14 @@ function usesOf(nodes) {
   return [...seen.values()];
 }
 
-/* Records wasted downloads under one key per face file and character, with
- * every place it happened. */
+/* Records wasted downloads under one key per face file, with every place it
+ * happened and the characters that fetched it there. */
 function recordWasted(wastedAll, wasted, where) {
   for (const w of wasted) {
-    const key = `${w.url} ${w.cp}`;
-    if (!wastedAll.has(key)) wastedAll.set(key, { family: w.family, url: w.url, cp: codePointLabel(w.cp), ch: String.fromCodePoint(w.cp), where: [] });
-    wastedAll.get(key).where.push(where);
+    if (!wastedAll.has(w.url)) wastedAll.set(w.url, { family: w.family, url: w.url, where: [], characters: new Set() });
+    const entry = wastedAll.get(w.url);
+    entry.where.push(where);
+    for (const cp of w.cps) entry.characters.add(`${codePointLabel(cp)} "${String.fromCodePoint(cp)}"`);
   }
 }
 
@@ -457,13 +457,11 @@ async function loadCorpus() {
       console.error(`config.fonts.corpus: entry "${e.name}" names row "${e.row}", which is not in capture.rows`);
       process.exit(2);
     }
-    /* A cluster of nothing but marks, format or control characters lays out
-     * as nothing on its own — a corpus of distinct code points, one per line,
-     * separates a combining mark from its base. Rendered rows judge those in
-     * place. */
+    /* Rendered rows judge a mark in place; split from its base by a
+     * one-per-line corpus, it lays out as nothing. */
     const graphemes = new Set();
     for (const { segment } of segmenter.segment(e.text)) {
-      if (!/^[\s\p{M}\p{Cf}\p{Cc}]+$/u.test(segment)) graphemes.add(segment);
+      if (!ALONE_EMPTY.test(segment)) graphemes.add(segment);
     }
     return { name: e.name, row, selector: e.selector, snapshot: e.snapshot ?? null, graphemes: [...graphemes] };
   });
@@ -516,7 +514,7 @@ async function readCorpusEntry(page, cdp, entry) {
   await page.evaluate(() => document.querySelector("[data-fa-corpus]")?.remove());
   const uses = entry.graphemes
     .map((g) => g.codePointAt(0))
-    .filter((cp) => !PROBE_SKIP.test(String.fromCodePoint(cp)))
+    .filter((cp) => !ALONE_EMPTY.test(String.fromCodePoint(cp)))
     .map((cp) => ({ fontFamily: placed.fontFamily, cp }));
   return { fontFamily: placed.fontFamily, asked: asked.length, fallen, unread, uses };
 }
@@ -682,9 +680,12 @@ async function main() {
   await browser.close();
   if (probe.failures.length) failed.push(`face files unreadable:\n    ${probe.failures.join("\n    ")}`);
 
-  const wastedList = [...wastedAll.values()];
+  const wastedList = [...wastedAll.values()].map((w) => ({ ...w, characters: [...w.characters] }));
   for (const w of wastedList) {
-    console.log(`wasted download: ${w.family} ${w.url} claims ${w.cp} "${w.ch}" — not in its cmap (${w.where.length} places, e.g. ${w.where[0]})`);
+    console.log(
+      `wasted download: ${w.family} ${w.url} draws none of the characters that fetched it — ${w.characters.slice(0, 8).join(" ")}` +
+        `${w.characters.length > 8 ? ` (+${w.characters.length - 8})` : ""} (${w.where.length} places, e.g. ${w.where[0]})`,
+    );
   }
   await mkdir(outRoot, { recursive: true });
   const outFile = path.join(outRoot, `fonts-${mode}.json`);
