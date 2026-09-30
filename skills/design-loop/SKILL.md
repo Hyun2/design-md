@@ -223,10 +223,9 @@ owner에게 보여준다.** G1에서 승인된 rule 개정은 여기서 반영�
 전체에서 걷어낸다. Named Rules, Colors, Components, Do's and Don'ts, 그리고 sidecar의
 `narrative`가 같은 문장을 나눠 갖고 있으므로 한 곳만 고치면 나머지가 낡는다.
 
-**출하 범위.** 시안·문서를 싣는 브랜치를 배포 브랜치로 통째로 fast-forward하는 프로젝트는 push
-절차에서 `scripts/ship-scope.mjs --base <배포 브랜치> --scope <시안·문서 경로>…`를 부르고, 목록이
-비어 있지 않으면 owner의 출하 결정을 받은 뒤 push한다. 커밋 제목은 그 아래 파일을 말하지 않는다
-— TuBrief에서 `feat(comp)` 커밋에 섞인 운영 컴포넌트 수정이 결정 없이 운영에 나갔다(tubrief-v2 #73).
+**출하 범위.** 시안·문서 브랜치를 배포 브랜치로 fast-forward하는 프로젝트는 push 절차에
+[출하 범위 검사](scripts/ship-scope.mjs)를 연결하고, 목록이 비어 있지 않으면 owner의 출하
+결정을 받는다. 호출과 판정은 스크립트 머리말을 따른다.
 
 **완료 조건:** 폐기된 rule의 잔존 언급이 `DESIGN.md`·sidecar·surface brief에서 0건이고, surface
 brief에 옮겨 적힌 world 값이 0건이다(STEP 4). owner가 ship을 승인했고, 커밋이 만들어졌다.
