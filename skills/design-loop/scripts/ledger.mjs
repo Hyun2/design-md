@@ -648,6 +648,10 @@ if (command === "check") {
       : `audit: ${missing} missing, ${unrecorded} unrecorded, ${unwired} unwired, ${unreachable} unreachable`,
   );
   if (total > 0) process.exit(1);
+  /* The step a session skipped (tubrief-v2 #98): it claimed a ticket and ran
+   * a grilling round without the skills the map names. This output is what
+   * every session reads right before it picks a ticket. */
+  console.log(`next: before claiming a ticket, load every skill the Notes of #${product} and #${map} name`);
 } else {
   console.error("usage: ledger.mjs <close|check|sync|audit> …");
   process.exit(1);
