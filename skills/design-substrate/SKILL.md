@@ -315,9 +315,12 @@ world의 출처를 확정한다. **권위 문서가 있다는 사실이 world가
    명도는 놓인 바탕마다 달라져 사다리의 단 사이에 떨어진다(2026-09 TuBrief 라이브러리 기본 dark field
    `bg-input/30`: L 0.232, 어느 단도 아니었고 목록 1~9가 보지 않았다). 그래서 목록 7처럼 대비를 계산하지 않고 α만
    본다. 판정은 목록 5와 같이 클래스를 변형째 컴파일해, 만든 CSS에 state 선택자(어댑터 `STATE_SELECTOR`)가
-   없는 `background-color`를 theme마다 토큰 값까지 푼 α다 — 토큰 선언 자체의 α도 잡힌다. 범위는 라이브러리
-   기본값이 사는 primitive이고, 화면 파일의 반투명 면은 STEP 4의 몫이다. state 면은 기준 4a가 재고, α 0은
-   칠하지 않으므로 뺀다. 반투명이 역할인 면(대화상자 뒤 scrim)과 이월된 면은 `utilityExempt`에 사유와 함께 올린다.
+   없는 `background-color`를 theme마다 토큰 값까지 푼 α다 — 토큰 선언 자체의 α도 잡힌다. Tailwind 어댑터는 설정
+   `grounds`의 토큰을 재선언한 스코프만 theme으로 모으므로, 각 theme이 재선언하는 면 토큰을 `grounds`에 넣는다.
+   범위는 라이브러리 기본값이 사는 primitive이고, 화면 파일의 반투명 면은 STEP 4의 몫이다. state 선택자가 있는
+   면은 이 목록의 범위 밖이다 — hover · selected · disabled 구분은 기준 4a, 포커스 표시는 4b가 재고, open ·
+   invalid 같은 나머지 state는 어느 명령도 재지 않는다. α 0은 칠하지 않으므로 뺀다. 반투명이 역할인 면(대화상자
+   뒤 scrim)과 이월된 면은 `utilityExempt`에 사유와 함께 올린다.
 
 **기준선을 지금 뜬다.** STEP 3이 값을 바꾸기 전에 재현 가능한 before를 확보한다. 라우터에서
 **전 화면**을 뽑아 manifest를 만들고(화면이 20개를 넘으면 표본안을 S1 제출물에 넣되, 승인
@@ -412,7 +415,7 @@ manifest를 그대로 다시 돌린다 — 같은 행, 같은 theme, 같은 view
 | # | 항목 | 통과 조건 |
 |---|---|---|
 | 1 | 빌드·typecheck·test·콘솔 | 실패 0, 신규 콘솔 에러 0 |
-| 2 | 텍스트 대비 | 모든 텍스트/배경 쌍이 WCAG AA(본문 4.5:1, large 3:1). before에서 이미 실패한 쌍은 before 값 이상. hover 표본(4a)의 글자는 hover 바탕 위에서도 재고, 요구치 미만이면서 idle 대비보다 낮으면 실패다 — hover가 바탕을 바꿔 글자를 떨어뜨린다(2026-09 TuBrief dark destructive hover α 0.3: 4.89 → 4.04). idle에서 이미 실패한 글자는 위 문장의 몫이다 |
+| 2 | 텍스트 대비 | 모든 텍스트/배경 쌍이 WCAG AA(본문 4.5:1, large 3:1). before에서 이미 실패한 쌍은 before 값 이상. hover 표본(4a)의 글자는 hover 바탕 위에서도 재고, 요구치 미만이면서 idle 대비보다 낮으면 실패다 — idle이 이미 요구치 미만이어도 hover가 더 낮추면 실패다(2026-09 TuBrief dark destructive hover α 0.3: 4.89 → 4.04) |
 | 3 | 레이아웃 보존 | manifest가 지정한 컨테이너의 bounding box 폭·높이 변화 ±2% 이내, 문서 세로 길이 변화 ±5% 이내, 신규 가로 overflow 0 |
 | 4a hover | state 구분 — hover | hover가 **바꾼 층**이 하나 이상이다: 면 ΔL ≥ 0.06 · 글자 ΔL ≥ 0.06 · 밑줄 등장. 링크 변형과 비선택 탭은 면을 바꾸지 않는다. 표본은 보이는 인스턴스 중 **대화형이고, 현재 상태가 아니고, disabled가 아닌** 가장 큰 것이다 — 정적 카드와 다시 눌러도 변화가 없는 선택된 탭(`aria-selected` · `aria-current` · 체크된 radio · 어댑터 `CURRENT_STATE`)에는 hover가 있을 이유가 없다. 누르면 꺼지는 토글(`aria-pressed` 등)은 표본에 남는다. 대상이 없으면 그 target은 「표본 없음」으로 출력된다 |
 | 4a selected · disabled | state 구분 — 면 | selected · disabled가 각 primitive에서 바탕 대비 **면의** ΔL ≥ 0.06으로 구분된다 |
