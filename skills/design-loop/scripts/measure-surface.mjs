@@ -1364,10 +1364,8 @@ async function waitReady(frame) {
   }
 }
 
-// REFERENCE.md operability 「판정」: a press is read once the requests it
-// started — data (fetch, xhr) and route code (script) — have finished and
-// none has started or ended for QUIET_MS, or at NAVIGATION_MS. A client-side
-// route change moves its URL and selection only after its loader returns.
+// When a press is read, and which requests it waits on: REFERENCE.md
+// operability 「판정」.
 const NAVIGATION_TYPES = new Set(["fetch", "xhr", "script"]);
 const QUIET_MS = 200;
 const NAVIGATION_MS = 10000;
@@ -1375,7 +1373,8 @@ const requestLogs = new WeakMap();
 function requestLog(page) {
   let log = requestLogs.get(page);
   if (log) return log;
-  log = { seq: 0, last: 0, open: new Map() };
+  // `last`: per frame, when one of its requests last started or ended.
+  log = { seq: 0, last: new WeakMap(), open: new Map() };
   page.on("request", (request) => {
     if (!NAVIGATION_TYPES.has(request.resourceType())) return;
     let frame;
@@ -1385,11 +1384,14 @@ function requestLog(page) {
       return; // a service worker's request belongs to no frame
     }
     log.seq += 1;
-    log.last = Date.now();
+    log.last.set(frame, Date.now());
     log.open.set(request, { frame, seq: log.seq });
   });
   const done = (request) => {
-    if (log.open.delete(request)) log.last = Date.now();
+    const entry = log.open.get(request);
+    if (!entry) return;
+    log.open.delete(request);
+    log.last.set(entry.frame, Date.now());
   };
   page.on("requestfinished", done);
   page.on("requestfailed", done);
@@ -1400,7 +1402,7 @@ async function settle(frame, log, mark) {
   const deadline = Date.now() + NAVIGATION_MS;
   while (Date.now() < deadline) {
     const busy = [...log.open.values()].some((entry) => entry.frame === frame && entry.seq > mark);
-    if (!busy && Date.now() - log.last >= QUIET_MS) return;
+    if (!busy && Date.now() - (log.last.get(frame) ?? 0) >= QUIET_MS) return;
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
 }
