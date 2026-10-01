@@ -71,7 +71,7 @@
  * the left edge at 1280x720 and 1440x900 alike).
  *
  * Each frame is then opened on its own and resized through `--sweep`, where
- * criteria 8-12 and 15 are judged at every width without operating anything:
+ * criteria 8-12, 15 and 16 are judged at every width without operating anything:
  * in 2026-09 the narrowest list title (26px, 1.2em) sat at 640px, a width no
  * device has, and widening the window past 1535px shrank a 21em title cell
  * to 4.7em when the list went from two columns to four.
@@ -307,7 +307,7 @@ const MEASURE = (rootSelector) => `async () => {
   for (const role of ['sans', 'catalogue', 'notation']) {
     faces[role] = getComputedStyle(root).getPropertyValue('--font-' + role).trim().split(',')[0];
   }
-  // Declared exceptions to the gated relational criteria (8-12, 14, 15):
+  // Declared exceptions to the gated relational criteria (8-12, 14-16):
   // \`data-comp-exempt="<criterion>: <reason>"\` on the element or an ancestor,
   // several joined by \`;\`. An exempt element leaves the judgement and lands in
   // \`exempted\` with its reason, which the submission puts before the owner —
@@ -321,7 +321,7 @@ const MEASURE = (rootSelector) => `async () => {
     const reasons = new Map();
     for (const part of a.getAttribute('data-comp-exempt').split(';')) {
       const m = part.match(/^\\s*(\\d+)\\s*:\\s*(\\S.*)$/);
-      if (m && [8, 9, 10, 11, 12, 14, 15].includes(Number(m[1]))) reasons.set(Number(m[1]), m[2].trim());
+      if (m && [8, 9, 10, 11, 12, 14, 15, 16].includes(Number(m[1]))) reasons.set(Number(m[1]), m[2].trim());
       else badExempt.push(part.trim());
     }
     declared.set(a, reasons);
@@ -510,6 +510,67 @@ const MEASURE = (rootSelector) => `async () => {
     headings.push({ px: size, lines, columnPx: Math.round(columnPx), widestLinePx: Math.round(inkWidth), usedPct, textWrap, plainWrap, text });
     if (lines >= 2 && usedPct < 70 && plainInk > inkWidth + 0.5 && !exempt(h, 11, 'heading ' + text)) {
       relationalDefects.push('criterion 11: heading "' + text + '" wraps into ' + lines + ' lines using ' + usedPct + '% of its ' + Math.round(columnPx) + 'px column (text-wrap: ' + textWrap + '; with text-wrap: wrap ' + plainWrap.lines + ' lines using ' + plainWrap.usedPct + '%)');
+    }
+  }
+
+  // 16 — word split: does a heading break a Korean word across lines? Korean
+  // separates words with spaces, but under \`word-break: normal\` the browser
+  // may break between any two syllables. In 2026-10 the Reader title under
+  // balance and normal breaking split 37.9% of 1,213 Korean titles inside a
+  // word (83.3% at 390px), 「물어보세 ⏎ 요」, and every measurement passed
+  // (tubrief-v2 #107). A line break is a split when the characters on its two
+  // sides are both letters or digits, no space, <br> or block edge lies
+  // between them, and one of them is Hangul — read off the glyphs, not \`lang\`,
+  // so a Korean title on an English page counts. Every heading level, any size:
+  // card titles are headings too.
+  const hangulChar = /\\p{Script=Hangul}/u;
+  const wordChar = /[\\p{L}\\p{N}]/u;
+  const blockOf = (node) => {
+    let el = node.nodeType === 1 ? node : node.parentElement;
+    while (el && el.parentElement && ['inline', 'contents'].includes(getComputedStyle(el).display)) el = el.parentElement;
+    return el;
+  };
+  const wordSplits = [];
+  for (const h of root.querySelectorAll('h1,h2,h3,h4,h5,h6')) {
+    if (!visible(h)) continue;
+    const size = parseFloat(getComputedStyle(h).fontSize);
+    const splits = [];
+    let prev = null;
+    let gap = false;
+    const walk = document.createTreeWalker(h, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+      if (n.nodeType === 1) {
+        if (n.tagName === 'BR') gap = true;
+        continue;
+      }
+      const block = blockOf(n);
+      const s = n.nodeValue;
+      for (let i = 0; i < s.length;) {
+        const ch = String.fromCodePoint(s.codePointAt(i));
+        const start = i;
+        i += ch.length;
+        if (/\\s/u.test(ch)) { gap = true; continue; }
+        const range = document.createRange();
+        range.setStart(n, start);
+        range.setEnd(n, i);
+        const rect = [...range.getClientRects()].find((r) => r.width > 0 && r.height > 0);
+        range.detach();
+        if (!rect) continue;
+        if (prev && !gap && prev.block === block && rect.top - prev.top > size / 2
+          && wordChar.test(prev.ch) && wordChar.test(ch) && (hangulChar.test(prev.ch) || hangulChar.test(ch))) {
+          splits.push(prev.ch + '⏎' + ch);
+        }
+        prev = { ch, top: rect.top, block };
+        gap = false;
+      }
+    }
+    if (splits.length === 0) continue;
+    const text = (h.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 32);
+    wordSplits.push({ tag: h.tagName.toLowerCase(), px: size, text, splits });
+    // The split letters stay in \`wordSplits\`: they move with the width, and
+    // the sweep folds one heading's widths into one line by its digits alone.
+    if (!exempt(h, 16, 'heading ' + text)) {
+      relationalDefects.push('criterion 16: heading "' + text + '" breaks a Korean word across lines ' + splits.length + ' time(s) (relational.wordSplits)');
     }
   }
 
@@ -738,7 +799,7 @@ const MEASURE = (rootSelector) => `async () => {
   hitAll.remove();
   for (const [n, [left, top]] of scrolled) { n.scrollLeft = left; n.scrollTop = top; }
 
-  for (const part of badExempt) relationalDefects.push('data-comp-exempt "' + part + '" is not "<8|9|10|11|12|14|15>: <reason>"');
+  for (const part of badExempt) relationalDefects.push('data-comp-exempt "' + part + '" is not "<8|9|10|11|12|14|15|16>: <reason>"');
 
   return {
     dominant: {
@@ -776,10 +837,11 @@ const MEASURE = (rootSelector) => `async () => {
     // Gated relational criteria and what failed them; declared exceptions
     // with their reasons; pictures that could not be read.
     relational: {
-      gated: [8, 9, 10, 11, 12, 14, 15],
+      gated: [8, 9, 10, 11, 12, 14, 15, 16],
       defects: relationalDefects,
       exempted,
       mediaUnread,
+      wordSplits,
       kindMix: null,
     },
     // Values the kernel could not read. Any at all makes this row a failed
