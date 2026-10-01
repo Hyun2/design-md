@@ -18,14 +18,15 @@
  * composited over an unexpected ground, a face that silently fell back, a token
  * overridden downstream.
  *
- * Criteria 1-7 are the element criteria in REFERENCE.md; 8-12, 14 and 15 are
+ * Criteria 1-7 are the element criteria in REFERENCE.md; 8-12 and 14-16 are
  * the relational ones, and each fails the run: controls on one line of
  * different heights or kinds with identical looks (or no visible marked
  * control at all), a picture of which under 95% is on screen (or one that
  * cannot be read), a painted box set beside another with an empty band of
- * 4rem and 15% of its height, a display heading that wraps into lines under
- * 70% of its column, a sentence of 24+ characters printed twice, text wrapped
- * or cut in a column under 6em of its own size.
+ * 4rem and 15% of its height, a display heading whose wrap mode left its lines
+ * under 70% of its box, a sentence of 24+ characters printed twice, text
+ * wrapped or cut in a column under 6em of its own size, a heading that breaks
+ * a Korean word across lines.
  * `data-comp-exempt="<criterion>: <reason>"` takes an element out of that
  * judgement and into `relational.exempted`, which the submission shows the
  * owner. Only 8 needs a markup contract: `data-comp-control="<name>"` on each
@@ -462,13 +463,8 @@ const MEASURE = (rootSelector) => `async () => {
   // heading's own content box, the same box criterion 15 reads. A heading fails
   // only when its wrapping left room the words could have used: laid out again
   // with plain wrapping, its widest line grows. Plain wrapping already fills
-  // each line as far as the next breakable unit allows, so a plainly wrapped
-  // heading is never short by choice — in 2026-10 one was failed at 68.7% of
-  // its padded parent while its first line plus the next word ran 455px in a
-  // 426px box (tubrief-v2 #108). In 2026-09 a failing title was blamed on its
-  // size, but balance was the cause — without it the failure rate fell to 0.4%
-  // or less at every width, and a smaller size raised it from 8.0% to 29.9%
-  // (tubrief-v2 #65).
+  // each line as far as the next breakable unit allows, so the browser, not
+  // this script, decides where a unit ends. Cases: REFERENCE.md criterion 11.
   const headings = [];
   const headingRows = (h, size) => {
     const range = document.createRange();
@@ -513,16 +509,12 @@ const MEASURE = (rootSelector) => `async () => {
     }
   }
 
-  // 16 — word split: does a heading break a Korean word across lines? Korean
-  // separates words with spaces, but under \`word-break: normal\` the browser
-  // may break between any two syllables. In 2026-10 the Reader title under
-  // balance and normal breaking split 37.9% of 1,213 Korean titles inside a
-  // word (83.3% at 390px), 「물어보세 ⏎ 요」, and every measurement passed
-  // (tubrief-v2 #107). A line break is a split when the characters on its two
-  // sides are both letters or digits, no space, <br> or block edge lies
-  // between them, and one of them is Hangul — read off the glyphs, not \`lang\`,
-  // so a Korean title on an English page counts. Every heading level, any size:
-  // card titles are headings too.
+  // 16 — word split: does a heading break a Korean word across lines? Under
+  // \`word-break: normal\` the browser may break between any two syllables. A
+  // line break is a split when the characters on its two sides are both
+  // letters or digits, no space, <br> or block edge lies between them, and one
+  // of them is Hangul — read off the glyphs, not \`lang\`, so a Korean title on
+  // an English page counts. Cases: REFERENCE.md criterion 16.
   const hangulChar = /\\p{Script=Hangul}/u;
   const wordChar = /[\\p{L}\\p{N}]/u;
   const blockOf = (node) => {
@@ -537,7 +529,15 @@ const MEASURE = (rootSelector) => `async () => {
     const splits = [];
     let prev = null;
     let gap = false;
-    const walk = document.createTreeWalker(h, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+    // Hidden descendants neither draw a letter nor separate two: a hidden space
+    // would mask a split, and a visibility-hidden letter still has a box.
+    const walk = document.createTreeWalker(h, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+      acceptNode: (n) => {
+        if (n.nodeType !== 1) return NodeFilter.FILTER_ACCEPT;
+        const st = getComputedStyle(n);
+        return st.display === 'none' || st.visibility !== 'visible' ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+      },
+    });
     for (let n = walk.nextNode(); n; n = walk.nextNode()) {
       if (n.nodeType === 1) {
         if (n.tagName === 'BR') gap = true;
