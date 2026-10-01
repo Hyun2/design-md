@@ -43,8 +43,10 @@
  * conditions」 7: every visible control is operated, and a dead one, a page
  * error, a popup painted outside the surface's token scope, or an
  * uncommitted tree fails the run. Pass the URL the owner opens; a page
- * holding iframes (a preview shell) is measured and operated frame by frame,
- * each keyed `<label> / <iframe title>`. A dead or replaced-in-place verdict
+ * holding iframes of its own origin (a preview shell) is measured and
+ * operated frame by frame, each keyed `<label> / <iframe title>`. A frame of
+ * another origin is an embed (a video player): part of the surface, listed
+ * in `embeds`, never waited on. A dead or replaced-in-place verdict
  * is judged again on a fresh document, and disagreeing verdicts fail the run
  * as `unstable`. Every document opened must declare `data-comp-ready`
  * (Comp fidelity 11).
@@ -1364,6 +1366,25 @@ async function waitReady(frame) {
   }
 }
 
+// A frame's child frames, split by origin: one of the frame's own origin is a
+// surface a preview shell holds; any other (an opaque `data:` or `srcdoc`
+// origin included) is an embed — a third-party player that never declares
+// `data-comp-ready` and is not the comp's to measure (tubrief-v2 #113).
+function framesOf(frame) {
+  const originOf = (f) => {
+    try {
+      return new URL(f.url()).origin;
+    } catch {
+      return "null";
+    }
+  };
+  const own = originOf(frame);
+  const surfaces = [];
+  const embeds = [];
+  for (const child of frame.childFrames()) (own !== "null" && originOf(child) === own ? surfaces : embeds).push(child);
+  return { surfaces, embeds };
+}
+
 // When a press is read, and which requests it waits on: REFERENCE.md
 // operability 「판정」.
 const NAVIGATION_TYPES = new Set(["fetch", "xhr", "script"]);
@@ -1681,8 +1702,10 @@ async function main() {
       await page.goto(url, { waitUntil: "networkidle" });
       await waitReady(page.mainFrame());
       // The URL the owner opens. A preview shell holds the surface in frames,
-      // and a frame is measured as the device it is sized to be.
-      const children = page.mainFrame().childFrames();
+      // and a frame is measured as the device it is sized to be. Only a frame
+      // of the page's own origin is a surface: a cross-origin frame is an
+      // embed the surface carries (a video player), measured as part of it.
+      const { surfaces: children } = framesOf(page.mainFrame());
       for (const child of children) await waitReady(child);
       const iframes = children.length > 0 ? await Promise.all(children.map((f) => f.frameElement())) : [null];
       // Fit check, before any control moves the shell's scroll or reloads a frame.
@@ -1714,6 +1737,7 @@ async function main() {
         const compTokens = shippedWorld
           ? await frame.evaluate(`(${TOKEN_VALUES(rootSelector)})()`)
           : null;
+        result.embeds = framesOf(frame).embeds.map((f) => f.url());
         result.fit = fits[frameIndex];
         if (!result.fit.isDevice) failed.push(`${key}: surface is ${result.fit.device}, not a device pair (${devices.join(", ")})`);
         if (!result.fit.inWindow) failed.push(`${key}: frame ${result.fit.box.width}x${result.fit.box.height} at (${result.fit.box.x},${result.fit.box.y}) runs past the ${result.fit.window} window`);

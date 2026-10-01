@@ -113,7 +113,7 @@ concept과 무관하게 **보이는 것을 누른다.** 이어진 라운드에�
 
 | 항목 | 규약 |
 |---|---|
-| 입력 | **owner가 여는 URL.** 페이지에 iframe이 있으면(preview 셸) 각 frame 안에서 측정·조작한다. frame URL을 직접 열어 통과한 것은 통과가 아니다 |
+| 입력 | **owner가 여는 URL.** 페이지에 **같은 origin의** iframe이 있으면(preview 셸) 각 frame 안에서 측정·조작한다. frame URL을 직접 열어 통과한 것은 통과가 아니다. 다른 origin의 iframe은 surface가 품은 embed(영상 플레이어)라 surface의 일부로 재고, 출력 `embeds`에 싣는다 — 2026-10 TuBrief #113에서 YouTube embed를 품은 운영 화면이 셸로 오인되어, embed의 `data-comp-ready`를 30초 기다리다 멈췄다 |
 | 대상 | 보이는 대화형 요소(`button` · `a[href]` · `input` · `select` · `textarea` · 대화형 ARIA role) **∪ `data-comp-control` ∪ `aria-current` 항목과 그 형제**. 뒤의 둘이 컨트롤처럼 칠해진 `<span>`(가짜 테마 토글, 가짜 GNB 메뉴)을 잡는다. 컨트롤을 품은 그룹은 그 안의 컨트롤로 판정한다. **셋 다 없는 칠해진 span은 보이지 않는다** — 컨트롤로 보이게 칠했으면 `data-comp-control`을 단다 |
 | 조작 | 텍스트 입력은 한 글자 입력, 나머지는 클릭. 반응이 있었던 대상 뒤에는 frame을 다시 로드한다 — 열린 popup이 다음 판정을 오염시키지 않게 |
 | 판정 | `document` 전체의 DOM 변경 · URL 변경 · 스크롤 중 하나라도 있으면 live. portal popup은 surface 루트 밖에 그려지므로 루트만 보면 놓친다. 텍스트 입력의 `value` 변화는 핸들러 없이도 생기므로 세지 않는다. **읽는 시점**: 누른 뒤 600ms(텍스트 입력 1500ms)를 기다리고, 이어서 그 frame에서 누르기 직전 이후 시작된 요청(fetch · xhr · script)이 전부 끝나거나 실패하고 그 frame의 요청이 200ms 동안 시작도 끝도 하지 않을 때까지 기다린다. 이 추가 대기는 최대 10초이고, 상한에 닿으면 요청이 남아 있어도 읽는다. client-side route 변경은 loader 요청이 돌아온 뒤에야 URL과 선택을 옮긴다 — 2026-10 TuBrief #111에서 언어 링크의 loader가 0.6~0.9초 걸려, 고정 600ms 판독이 실행마다 다른 후보를 dead로 냈다 |
