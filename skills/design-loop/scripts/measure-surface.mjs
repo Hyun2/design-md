@@ -1207,19 +1207,15 @@ function kindMix(operated, layout) {
 // `collect` gathers the control inventory: what is on the surface at rest,
 // plus what each live control opens in a popup, read before the reload that
 // would close it. `skip` spares controls that cannot open a popup.
-async function checkOperability(page, iframe, { collect = false, skip = () => false, scope = null, kindRoot = null } = {}) {
+// `relocate` finds the frame's <iframe> again after the shell document itself
+// was replaced; the caller finds it the same way once the check returns.
+async function checkOperability(page, iframe, { collect = false, skip = () => false, scope = null, kindRoot = null, relocate = null } = {}) {
   let frame = iframe ? await iframe.contentFrame() : page.mainFrame();
   const home = frame.url();
   // A link can leave for a page that refuses to be framed; Chromium then swaps
   // the frame's process and Playwright's Frame object detaches. The <iframe>
   // element survives, so a frame is reloaded through it.
-  const reload = async () => {
-    if (!iframe) {
-      await page.goto(home, { waitUntil: "networkidle" });
-      frame = page.mainFrame();
-      await waitReady(frame);
-      return;
-    }
+  const loadHome = async () => {
     const [next] = await Promise.all([
       page.waitForEvent("framenavigated", (f) => f.url() === home),
       iframe.evaluate((el, src) => { el.src = src; }, home),
@@ -1227,6 +1223,24 @@ async function checkOperability(page, iframe, { collect = false, skip = () => fa
     frame = next;
     await frame.waitForLoadState("networkidle");
     await waitReady(frame);
+  };
+  const reload = async () => {
+    if (!iframe) {
+      await page.goto(home, { waitUntil: "networkidle" });
+      frame = page.mainFrame();
+      await waitReady(frame);
+      return;
+    }
+    try {
+      await loadHome();
+    } catch (error) {
+      // The shell document was replaced under the check — a dev server
+      // reloading the whole page — and the <iframe> handle went with it.
+      if (!relocate || !LOST_CONTEXT.test(error.message)) throw error;
+      report.shellReloads += 1;
+      iframe = await relocate();
+      await loadHome();
+    }
   };
   let targets;
   let kindLayout = null;
@@ -1242,7 +1256,7 @@ async function checkOperability(page, iframe, { collect = false, skip = () => fa
   } else {
     targets = await frame.evaluate(`(${TARGETS})()`);
   }
-  const report = { checked: 0, live: [], kinds: [], dead: [], unstable: [], inert: [], errors: [], reselected: [], unscopedPopups: [] };
+  const report = { checked: 0, live: [], kinds: [], dead: [], unstable: [], inert: [], errors: [], reselected: [], unscopedPopups: [], shellReloads: 0 };
   // A selected target that did not answer is pressed again from outside its
   // state: reload, press its sibling, then press it. true when it answered,
   // "exempt" when the sibling left the page, otherwise the reason it is dead.
@@ -1358,6 +1372,9 @@ const NO_CHANGE = "no DOM, URL or scroll change";
 // REFERENCE.md Comp fidelity 11: `networkidle` is not "handlers attached".
 const READY_MS = 30000;
 class NotReady extends Error {}
+// A Playwright call whose document went away under it: a navigation destroyed
+// the execution context, or the frame was detached from a replaced shell.
+const LOST_CONTEXT = /Execution context was destroyed|detached/i;
 async function waitReady(frame) {
   try {
     await frame.waitForFunction(() => document.documentElement.hasAttribute("data-comp-ready"), null, { timeout: READY_MS });
@@ -1708,6 +1725,15 @@ async function main() {
       const { surfaces: children } = framesOf(page.mainFrame());
       for (const child of children) await waitReady(child);
       const iframes = children.length > 0 ? await Promise.all(children.map((f) => f.frameElement())) : [null];
+      // A frame's <iframe> found again in the shell's current document: a dev
+      // server can reload the whole page while a frame is checked (#116).
+      const locate = async (frameIndex) => {
+        await waitReady(page.mainFrame());
+        const child = framesOf(page.mainFrame()).surfaces[frameIndex];
+        if (!child) throw new NotReady(`${url}: frame ${frameIndex + 1} is gone from the reloaded shell`);
+        await waitReady(child);
+        return child.frameElement();
+      };
       // Fit check, before any control moves the shell's scroll or reloads a frame.
       const win = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
       const fits = [];
@@ -1726,7 +1752,8 @@ async function main() {
           inWindow,
         });
       }
-      for (const [frameIndex, iframe] of iframes.entries()) {
+      for (const frameIndex of iframes.keys()) {
+        let iframe = iframes[frameIndex] && (await locate(frameIndex));
         let frame = iframe ? await iframe.contentFrame() : page.mainFrame();
         const title = iframe ? await iframe.getAttribute("title") : null;
         const key = title ? `${label} / ${title}` : iframe ? `${label} / ${frame.url()}` : label;
@@ -1741,7 +1768,10 @@ async function main() {
         result.fit = fits[frameIndex];
         if (!result.fit.isDevice) failed.push(`${key}: surface is ${result.fit.device}, not a device pair (${devices.join(", ")})`);
         if (!result.fit.inWindow) failed.push(`${key}: frame ${result.fit.box.width}x${result.fit.box.height} at (${result.fit.box.x},${result.fit.box.y}) runs past the ${result.fit.window} window`);
-        result.operability = await checkOperability(page, iframe, { collect: true, scope: rootSelector, kindRoot: rootSelector });
+        result.operability = await checkOperability(page, iframe, {
+          collect: true, scope: rootSelector, kindRoot: rootSelector, relocate: () => locate(frameIndex),
+        });
+        if (iframe) iframe = await locate(frameIndex);
         frame = iframe ? await iframe.contentFrame() : page.mainFrame();
         const kindMix = result.operability.kindMix;
         delete result.operability.kindMix;
@@ -1819,9 +1849,11 @@ async function main() {
       await page.close();
     }
   } catch (error) {
-    if (!(error instanceof NotReady)) throw error;
+    // A document that never declared ready, or one replaced past recovery,
+    // ends the run as "not measured" with the output written so far.
+    if (!(error instanceof NotReady) && !LOST_CONTEXT.test(String(error.message))) throw error;
     if (open) closePage();
-    failed.push(`not measured from here on: ${error.message}`);
+    failed.push(`not measured from here on: ${String(error.message).split("\n")[0]}`);
   } finally {
     await browser.close();
   }
