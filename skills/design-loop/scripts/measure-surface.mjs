@@ -458,12 +458,17 @@ const MEASURE = (rootSelector) => `async () => {
   // 11 — does a display-size heading use the column it was given?
   // \`text-balance\` on a 40px title wrapped it into short lines: 388px inside an
   // 828px column. Only a heading that wraps is judged: a title that ends on its
-  // first line is as long as its words, not short by choice. The line carries
-  // the heading's text-wrap, and a balanced or pretty heading is laid out again
-  // with plain wrapping: in 2026-09 a failing title was blamed on its size and
-  // the fix waited on a size decision, but balance was the cause — without it
-  // the failure rate fell to 0.4% or less at every width, and a smaller size
-  // raised it from 8.0% to 29.9% (tubrief-v2 #65).
+  // first line is as long as its words, not short by choice. The column is the
+  // heading's own content box, the same box criterion 15 reads. A heading fails
+  // only when its wrapping left room the words could have used: laid out again
+  // with plain wrapping, its widest line grows. Plain wrapping already fills
+  // each line as far as the next breakable unit allows, so a plainly wrapped
+  // heading is never short by choice — in 2026-10 one was failed at 68.7% of
+  // its padded parent while its first line plus the next word ran 455px in a
+  // 426px box (tubrief-v2 #108). In 2026-09 a failing title was blamed on its
+  // size, but balance was the cause — without it the failure rate fell to 0.4%
+  // or less at every width, and a smaller size raised it from 8.0% to 29.9%
+  // (tubrief-v2 #65).
   const headings = [];
   const headingRows = (h, size) => {
     const range = document.createRange();
@@ -484,12 +489,13 @@ const MEASURE = (rootSelector) => `async () => {
     const size = parseFloat(style.fontSize);
     if (size < 28 || !visible(h)) continue;
     const own = h.getBoundingClientRect();
-    const parent = h.parentElement ? h.parentElement.getBoundingClientRect() : own;
-    const pctOf = (px) => Number(((px / Math.max(1, parent.width)) * 100).toFixed(1));
+    const columnPx = Math.max(1, own.width - parseFloat(style.borderLeftWidth) - parseFloat(style.borderRightWidth) - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight));
+    const pctOf = (px) => Number(((px / columnPx) * 100).toFixed(1));
     const { lines, inkWidth } = headingRows(h, size);
     const usedPct = pctOf(inkWidth);
     const textWrap = style.textWrapStyle && style.textWrapStyle !== 'auto' ? style.textWrapStyle : 'wrap';
     let plainWrap = null;
+    let plainInk = inkWidth;
     if (textWrap === 'balance' || textWrap === 'pretty') {
       const before = h.style.getPropertyValue('text-wrap');
       const priority = h.style.getPropertyPriority('text-wrap');
@@ -497,15 +503,13 @@ const MEASURE = (rootSelector) => `async () => {
       const plain = headingRows(h, size);
       if (before) h.style.setProperty('text-wrap', before, priority);
       else h.style.removeProperty('text-wrap');
+      plainInk = plain.inkWidth;
       plainWrap = { lines: plain.lines, widestLinePx: Math.round(plain.inkWidth), usedPct: pctOf(plain.inkWidth) };
     }
     const text = (h.textContent || '').trim().slice(0, 32);
-    headings.push({ px: size, lines, columnPx: Math.round(parent.width), widestLinePx: Math.round(inkWidth), usedPct, textWrap, plainWrap, text });
-    if (lines >= 2 && usedPct < 70 && !exempt(h, 11, 'heading ' + text)) {
-      const wrapNote = plainWrap
-        ? 'text-wrap: ' + textWrap + '; with text-wrap: wrap ' + plainWrap.lines + ' lines using ' + plainWrap.usedPct + '%'
-        : 'text-wrap: wrap';
-      relationalDefects.push('criterion 11: heading "' + text + '" wraps into ' + lines + ' lines using ' + usedPct + '% of its ' + Math.round(parent.width) + 'px column (' + wrapNote + ')');
+    headings.push({ px: size, lines, columnPx: Math.round(columnPx), widestLinePx: Math.round(inkWidth), usedPct, textWrap, plainWrap, text });
+    if (lines >= 2 && usedPct < 70 && plainInk > inkWidth + 0.5 && !exempt(h, 11, 'heading ' + text)) {
+      relationalDefects.push('criterion 11: heading "' + text + '" wraps into ' + lines + ' lines using ' + usedPct + '% of its ' + Math.round(columnPx) + 'px column (text-wrap: ' + textWrap + '; with text-wrap: wrap ' + plainWrap.lines + ' lines using ' + plainWrap.usedPct + '%)');
     }
   }
 
