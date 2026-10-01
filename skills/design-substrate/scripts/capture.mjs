@@ -429,7 +429,7 @@ async function measureStates(page) {
         };
         return {
           focus: largest(() => true),
-          hover: largest((el) => el.matches(interactive) && !el.matches(disabled) && !el.matches(current)),
+          hover: largest((el) => el.matches(interactive) && !el.matches(disabled)),
         };
       },
       [selector, INTERACTIVE, DISABLED, CURRENT],
