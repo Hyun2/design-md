@@ -188,6 +188,26 @@ export function textColourClasses(body) {
 }
 
 /**
+ * Surface fills (STEP 1 list 10): every class as written, variants included,
+ * that ends in a `bg-` utility. Image and gradient utilities come along and
+ * compile to no `background-color`, which is how they drop out.
+ */
+export function surfaceClasses(body) {
+  return [...body.matchAll(/\S+/g)]
+    .filter((m) => /^!?-?bg-/.test(baseUtility(m[0])))
+    .map((m) => ({ cls: m[0], index: m.index }));
+}
+
+/**
+ * A state variant in the CSS Tailwind generates for a class: a pseudo-class
+ * or an attribute the library sets while a control is hovered, focused,
+ * pressed, open, selected, invalid or disabled. List 10 reads only the fill a
+ * surface carries without one — a state fill is criterion 4a's.
+ */
+export const STATE_SELECTOR =
+  /:(?:hover|focus|focus-visible|focus-within|active|disabled|checked)\b|\[(?:aria-(?:expanded|selected|pressed|checked|current|disabled|invalid)|data-(?:state|active|checked|open|disabled|selected|highlighted|pressed|popup-open))\b/;
+
+/**
  * The token values each theme resolves, read off the token sheet: every block
  * whose selector list includes `:root`, plus the `@theme` blocks, form the
  * base, and every other block that re-declares one of `names` (`.dark`, a
@@ -269,3 +289,14 @@ export const STATE_TARGETS = Object.fromEntries(
     `[data-slot='${slot}']`,
   ]),
 );
+
+/**
+ * Capture side: how this library marks a control as selected, beyond ARIA.
+ * `CURRENT_STATE` is the selection a second press leaves unchanged (Base UI
+ * tab `data-active`, Radix `data-state=active`); criterion 4a never samples
+ * hover there. `PRESSED_STATE` is a toggle that a press turns off (Base UI
+ * toggle `data-pressed`, checkbox/switch `data-checked`, Radix `on`/`checked`);
+ * it stays a hover sample and joins the selected read.
+ */
+export const CURRENT_STATE = "[data-active], [data-state='active']";
+export const PRESSED_STATE = "[data-pressed], [data-checked], [data-state='on'], [data-state='checked']";

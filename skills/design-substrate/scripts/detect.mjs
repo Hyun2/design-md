@@ -25,6 +25,8 @@
  *                   clips before any contrast is measured
  * 9. translucent-text — a text colour below alpha 1 whose composite over the
  *                   worst declared ground falls under 4.5:1
+ * 10. translucent-surface — a primitive's idle fill below alpha 1, which lands
+ *                   on a different lightness over every ground it sits on
  *
  * Scope is every file that renders, dev-only preview code included: a comp
  * preview was once left out, and a token the substrate pass deleted went on
@@ -389,6 +391,50 @@ async function main() {
         );
       }
     }
+  });
+
+  /* 10. translucent surfaces. A fill below alpha 1 takes its lightness from
+   * whatever ground it lands on, so it sits between the ladder's rungs: the
+   * library's dark-only field fill `bg-input/30` painted L 0.232, a rung no
+   * world declares, and no list saw it. Asked of the primitives, where
+   * library defaults live, and of the idle fill only — a state fill is
+   * criterion 4a's. Alpha 0 paints nothing. */
+  primitiveFiles.forEach((file, index) => {
+    const text = stripComments(primitiveTexts[index]);
+    const hits = [];
+    for (const { body, at } of adapter.classStrings(file, text)) {
+      for (const { cls, index: offset } of adapter.surfaceClasses(body)) {
+        if (utilityExempt.some((e) => e.file === file && e.text === cls)) continue;
+        hits.push({ cls, line: text.slice(0, at + offset).split("\n").length });
+      }
+    }
+    const generatedFills = compiles(hits.map((h) => h.cls));
+    hits.forEach(({ cls, line }, i) => {
+      const cssText = generatedFills[i];
+      if (!cssText || adapter.STATE_SELECTOR.test(cssText)) return;
+      for (const [, value] of cssText.matchAll(/(?<![\w-])background-color\s*:\s*([^;]+);/g)) {
+        for (const [theme, table] of Object.entries(themes)) {
+          const fill = resolveColour(value, table);
+          if (!fill) {
+            findings.push({
+              kind: "translucent-surface",
+              where: `${file}:${line}`,
+              what: `${cls} — ${theme}에서 면 색 ${value.trim()}을 계산하지 못한다(읽지 못한 값)`,
+            });
+            return;
+          }
+          if (fill === "inherited") continue;
+          if (fill.alpha > 0 && fill.alpha < 1) {
+            findings.push({
+              kind: "translucent-surface",
+              where: `${file}:${line}`,
+              what: `${cls} — ${theme}에서 면 색 α ${+fill.alpha.toFixed(3)}. 놓인 바탕마다 다른 L이 되어 사다리 밖 단을 칠한다`,
+            });
+            return;
+          }
+        }
+      }
+    });
   });
 
   if (census) {

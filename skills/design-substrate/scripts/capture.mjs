@@ -21,10 +21,12 @@
  * class, because a hand-added class measures what the script wrote, not what
  * the primitive does.
  *
- * Exit 1 when any row failed to measure (unread colour values, no kernel) or
- * when gate 4b fails: a state target whose focus paints no new layer ≥ 3:1
- * thicker than 0. Playwright is resolved from the calling project, so no
- * install lives here.
+ * Exit 1 when any row failed to measure (unread colour values, no kernel), when
+ * gate 4b fails (a state target whose focus paints no new layer ≥ 3:1 thicker
+ * than 0), or when a hover gate fails outside the config's deferred list
+ * (4a-hover: hover changes no layer; 2-hover: hover lowers text under its
+ * requirement and under idle). Playwright is resolved from the calling
+ * project, so no install lives here.
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
@@ -284,6 +286,47 @@ const PAGE_MEASURE = ({ container: containerSelector, scroller: scrollerSelector
 /* ------------------------------------------------------------------ *
  * criterion 4: state separation, forced through CDP.
  * ------------------------------------------------------------------ */
+
+/* A hover sample is a control a reader can act on. Interactivity is asked of
+ * the element itself, through HTML and ARIA: a static card or a span badge
+ * has no reason to answer hover (2026-09 TuBrief: 8 of 49 misses). */
+const INTERACTIVE = [
+  "a[href]",
+  "button",
+  "input:not([type='hidden'])",
+  "select",
+  "textarea",
+  "summary",
+  ...["button", "link", "tab", "menuitem", "menuitemcheckbox", "menuitemradio", "option", "checkbox", "radio", "switch", "combobox", "textbox", "slider"].map(
+    (role) => `[role='${role}']`,
+  ),
+  "[tabindex]:not([tabindex^='-'])",
+  "[contenteditable='']",
+  "[contenteditable='true']",
+].join(", ");
+const DISABLED = ":disabled, [aria-disabled='true'], [data-disabled]";
+/* Current: a second press changes nothing, so hover has nothing to offer
+ * (the selected tab measured ΔL 0 while its siblings moved text ΔL 0.21).
+ * The same definition as the operability check's selected control. A pressed
+ * toggle turns off on the next press, so it stays a hover sample. */
+const CURRENT = [
+  "[aria-selected='true']",
+  "[aria-current]:not([aria-current='false'])",
+  "input[type='radio']:checked",
+  "[role='radio'][aria-checked='true']",
+  adapter.CURRENT_STATE,
+]
+  .filter(Boolean)
+  .join(", ");
+const SELECTED = [CURRENT, "[aria-pressed='true']", "[aria-checked='true']", "input:checked", adapter.PRESSED_STATE]
+  .filter(Boolean)
+  .join(", ");
+
+/* Gate 4a hover: hover changes at least one layer — the surface, the text, or
+ * an underline appears. A link variant (`hover:underline`) or a tab that moves
+ * only its text colour changes no surface and is not a miss. */
+const HOVER_DELTA = 0.06;
+
 async function measureStates(page) {
   const client = await page.context().newCDPSession(page);
   await client.send("DOM.enable");
@@ -318,9 +361,18 @@ async function measureStates(page) {
         const style = getComputedStyle(el);
         const fg = k.parse(style.color);
         const ground = k.groundOf(el);
+        const painted = fg ? k.over(fg, ground) : null;
+        const size = parseFloat(style.fontSize);
+        const weight = Number(style.fontWeight) || 400;
+        const hasText = (el.textContent ?? "").trim().length > 0;
         return {
           L: Number(k.okL(ground).toFixed(4)),
-          textL: fg ? Number(k.okL(k.over(fg, ground)).toFixed(4)) : null,
+          textL: painted ? Number(k.okL(painted).toFixed(4)) : null,
+          /* Criterion 2 in this state: the element's own text colour over the
+           * ground this state paints. */
+          textContrast: painted && hasText ? Number(k.contrast(painted, ground).toFixed(2)) : null,
+          textRequired: size >= 24 || (size >= 18.66 && weight >= 700) ? 3 : 4.5,
+          underline: style.textDecorationLine.includes("underline"),
           fill: style.backgroundColor,
           layers: k.paintedLayers(el),
           indicator: idleLayers ? k.focusIndicator(el, idleLayers) : null,
@@ -328,6 +380,13 @@ async function measureStates(page) {
       },
       [selector, index, idleLayers],
     );
+
+  const forceRead = async (nodeId, selector, index, classes, idleLayers = null) => {
+    await client.send("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: classes });
+    const read = await readGround(selector, index, idleLayers);
+    await client.send("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: [] });
+    return read;
+  };
 
   /* A "type" smoke flow leaves real focus in the input it filled, so its idle
    * read would already carry the focus ring and focus would add nothing. */
@@ -344,121 +403,123 @@ async function measureStates(page) {
 
     /* The first match is whatever the DOM happened to put first — often an
      * offscreen trigger. The largest visible instance is the control a reader
-     * actually sees, so criterion 4 is measured there. */
-    const target = await page.evaluate((sel) => {
-      let best = -1;
-      let bestArea = 0;
-      document.querySelectorAll(sel).forEach((el, i) => {
-        const r = el.getBoundingClientRect();
-        const style = getComputedStyle(el);
-        if (style.visibility === "hidden" || style.display === "none") return;
-        const area = r.width * r.height;
-        if (area > bestArea) {
-          bestArea = area;
-          best = i;
-        }
-      });
-      return { index: best, area: Math.round(bestArea) };
-    }, selector);
-    if (target.index < 0 || target.area < 100) continue;
+     * actually sees, so criterion 4 is measured there: focus on the largest
+     * visible instance, hover on the largest one a reader can act on and that
+     * hover can still change (interactive, not current, not disabled). */
+    const target = await page.evaluate(
+      ([sel, interactive, disabled, current]) => {
+        const largest = (accept) => {
+          let best = -1;
+          let bestArea = 0;
+          let eligible = 0;
+          document.querySelectorAll(sel).forEach((el, i) => {
+            const r = el.getBoundingClientRect();
+            const style = getComputedStyle(el);
+            if (style.visibility === "hidden" || style.display === "none") return;
+            if (!accept(el)) return;
+            const area = r.width * r.height;
+            if (area < 100) return;
+            eligible += 1;
+            if (area > bestArea) {
+              bestArea = area;
+              best = i;
+            }
+          });
+          return { index: best, area: Math.round(bestArea), eligible };
+        };
+        return {
+          focus: largest(() => true),
+          hover: largest((el) => el.matches(interactive) && !el.matches(disabled) && !el.matches(current)),
+        };
+      },
+      [selector, INTERACTIVE, DISABLED, CURRENT],
+    );
+    if (target.focus.index < 0) continue;
 
     const { nodeIds } = await client.send("DOM.querySelectorAll", {
       nodeId: root.nodeId,
       selector,
     });
-    const nodeId = nodeIds[target.index];
+    const nodeId = nodeIds[target.focus.index];
     if (!nodeId) continue;
 
-    const idle = await readGround(selector, target.index);
+    const idle = await readGround(selector, target.focus.index);
     if (!idle) continue;
 
-    const forced = {};
     /* `:focus-visible` rules in this library are written beside `:focus`
      * selectors, so forcing the visible half alone leaves half the declaration
      * block unmatched. Both are forced together, the way a keyboard user
      * produces them. */
-    const FORCED_STATES = {
-      hover: ["hover"],
-      "focus-visible": ["focus", "focus-visible"],
-    };
-    for (const [pseudo, classes] of Object.entries(FORCED_STATES)) {
-      await client.send("CSS.forcePseudoState", {
-        nodeId,
-        forcedPseudoClasses: classes,
-      });
-      forced[pseudo] = await readGround(
-        selector,
-        target.index,
-        pseudo === "focus-visible" ? idle.layers : null,
-      );
-      await client.send("CSS.forcePseudoState", {
-        nodeId,
-        forcedPseudoClasses: [],
-      });
-    }
-    const focusIndicator = forced["focus-visible"]?.indicator ?? null;
+    const focused = await forceRead(nodeId, selector, target.focus.index, ["focus", "focus-visible"], idle.layers);
+    const focusIndicator = focused?.indicator ?? null;
 
-    const disabledIdx = await page.evaluate(
-      (sel) =>
-        Array.from(document.querySelectorAll(sel)).findIndex(
-          (el) =>
-            el.hasAttribute("disabled") ||
-            el.getAttribute("aria-disabled") === "true" ||
-            el.getAttribute("data-disabled") !== null,
-        ),
-      selector,
-    );
-    const selectedIdx = await page.evaluate(
-      (sel) =>
-        Array.from(document.querySelectorAll(sel)).findIndex(
-          (el) =>
-            el.getAttribute("data-state") === "active" ||
-            el.getAttribute("aria-selected") === "true" ||
-            el.getAttribute("data-state") === "checked",
-        ),
-      selector,
-    );
-    const disabled =
-      disabledIdx >= 0 ? await readGround(selector, disabledIdx) : null;
-    const selected =
-      selectedIdx >= 0 ? await readGround(selector, selectedIdx) : null;
+    let hover = { sampledIndex: null, eligible: 0 };
+    const hoverNode = target.hover.index >= 0 ? nodeIds[target.hover.index] : null;
+    if (hoverNode) {
+      const before = await readGround(selector, target.hover.index);
+      const after = await forceRead(hoverNode, selector, target.hover.index, ["hover"]);
+      if (before && after) {
+        const surfaceDelta = Number(Math.abs(after.L - before.L).toFixed(4));
+        const textDelta =
+          before.textL != null && after.textL != null ? Number(Math.abs(after.textL - before.textL).toFixed(4)) : null;
+        const underline = !before.underline && after.underline;
+        /* Hover may not take the text below the line idle held: fail when
+         * hover is under the requirement and under idle, so a pair idle
+         * already fails stays criterion 2's, counted once. */
+        const text =
+          before.textContrast != null && after.textContrast != null
+            ? {
+                idle: before.textContrast,
+                hover: after.textContrast,
+                required: after.textRequired,
+                pass: !(after.textContrast < after.textRequired && after.textContrast < before.textContrast),
+              }
+            : null;
+        hover = {
+          sampledIndex: target.hover.index,
+          sampledArea: target.hover.area,
+          eligible: target.hover.eligible,
+          idleFill: before.fill,
+          hoverFill: after.fill,
+          surfaceDelta,
+          textDelta,
+          underline,
+          pass: surfaceDelta >= HOVER_DELTA || (textDelta ?? 0) >= HOVER_DELTA || underline,
+          text,
+        };
+      }
+    }
+
+    const indexOf = (predicate) =>
+      page.evaluate(
+        ([sel, predicate]) => Array.from(document.querySelectorAll(sel)).findIndex((el) => el.matches(predicate)),
+        [selector, predicate],
+      );
+    const disabledIdx = await indexOf(DISABLED);
+    const selectedIdx = await indexOf(SELECTED);
+    const disabled = disabledIdx >= 0 ? await readGround(selector, disabledIdx) : null;
+    const selected = selectedIdx >= 0 ? await readGround(selector, selectedIdx) : null;
 
     out[slot] = {
       count,
-      sampledIndex: target.index,
-      sampledArea: target.area,
+      sampledIndex: target.focus.index,
+      sampledArea: target.focus.area,
       idleL: idle.L,
       idleTextL: idle.textL,
       idleFill: idle.fill,
-      hoverFill: forced.hover?.fill ?? null,
-      hoverL: forced.hover?.L ?? null,
-      hoverDelta:
-        forced.hover?.L != null
-          ? Number(Math.abs(forced.hover.L - idle.L).toFixed(4))
-          : null,
-      focusL: forced["focus-visible"]?.L ?? null,
-      focusDelta:
-        forced["focus-visible"]?.L != null
-          ? Number(Math.abs(forced["focus-visible"].L - idle.L).toFixed(4))
-          : null,
+      hover,
+      focusL: focused?.L ?? null,
+      focusDelta: focused?.L != null ? Number(Math.abs(focused.L - idle.L).toFixed(4)) : null,
       /* Gate 4b: focus paints a layer idle does not, ≥ 3:1 against its
        * adjacent ground, thicker than 0. null indicator = focus paints
        * nothing new. */
       focusIndicator,
-      focusPass:
-        focusIndicator != null &&
-        focusIndicator.thickness > 0 &&
-        focusIndicator.contrast >= 3,
+      focusPass: focusIndicator != null && focusIndicator.thickness > 0 && focusIndicator.contrast >= 3,
       disabledL: disabled?.L ?? null,
       disabledTextDelta:
-        disabled?.textL != null && idle.textL != null
-          ? Number(Math.abs(disabled.textL - idle.textL).toFixed(4))
-          : null,
+        disabled?.textL != null && idle.textL != null ? Number(Math.abs(disabled.textL - idle.textL).toFixed(4)) : null,
       selectedL: selected?.L ?? null,
-      selectedDelta:
-        selected?.L != null
-          ? Number(Math.abs(selected.L - idle.L).toFixed(4))
-          : null,
+      selectedDelta: selected?.L != null ? Number(Math.abs(selected.L - idle.L).toFixed(4)) : null,
     };
   }
   out.colorRead = await page.evaluate(() => {
@@ -508,6 +569,21 @@ async function main() {
   const failedRows = [];
   /* Gate 4b rows: a target whose focus paints no new layer ≥ 3:1 and > 0 thick. */
   const focusFailures = [];
+  /* Hover gates: 4a (hover changes no layer) and 2 under hover (hover takes
+   * the text under its requirement and under idle). A miss an owner carried
+   * forward is matched by a `capture` entry of the config's deferred list,
+   * printed every run and left out of the exit code. */
+  const hoverFailures = [];
+  const carried = (config.detect?.deferred ?? []).map((entry) => ({ entry, hits: [] }));
+  const hoverMiss = (row, theme, slot, check, line) => {
+    const match = carried.find(({ entry }) =>
+      (entry.capture ?? []).some(
+        (m) => m.row === row.id && m.target === slot && m.check === check && (m.theme == null || m.theme === theme),
+      ),
+    );
+    if (match) match.hits.push(line);
+    else hoverFailures.push(line);
+  };
   /* Rows share a browser context per session (anonymous, signed in, …), so a
    * session's storage state is loaded once per viewport × theme. */
   const sessions = [...new Set(rows.map((r) => capture.session(r)))];
@@ -558,8 +634,26 @@ async function main() {
           }
           if (typeof states !== "string") {
             for (const [slot, value] of Object.entries(states)) {
-              if (value && typeof value === "object" && "focusPass" in value && value.focusPass === false) {
-                focusFailures.push(`${key} ${slot}`);
+              if (!value || typeof value !== "object" || !("focusPass" in value)) continue;
+              if (value.focusPass === false) focusFailures.push(`${key} ${slot}`);
+              const { hover } = value;
+              if (hover.pass === false) {
+                hoverMiss(
+                  row,
+                  theme,
+                  slot,
+                  "4a-hover",
+                  `${key} ${slot}  4a-hover  surface ΔL ${hover.surfaceDelta} · text ΔL ${hover.textDelta} · underline ${hover.underline}`,
+                );
+              }
+              if (hover.text?.pass === false) {
+                hoverMiss(
+                  row,
+                  theme,
+                  slot,
+                  "2-hover",
+                  `${key} ${slot}  2-hover  text ${hover.text.idle} idle → ${hover.text.hover} hover < ${hover.text.required}`,
+                );
               }
             }
           }
@@ -619,6 +713,16 @@ async function main() {
   if (focusFailures.length) {
     console.error(
       `gate 4b: ${focusFailures.length} target(s) where focus paints no new layer ≥ 3:1 thicker than 0:\n  ${focusFailures.join("\n  ")}`,
+    );
+    process.exitCode = 1;
+  }
+  for (const { entry, hits } of carried.filter(({ entry }) => entry.capture?.length)) {
+    console.log(`deferred (권한 밖, 출하됨): ${entry.what} → ${entry.carriedTo}`);
+    console.log(hits.length ? `  ${hits.join("\n  ")}` : "  (no match this run)");
+  }
+  if (hoverFailures.length) {
+    console.error(
+      `hover gates: ${hoverFailures.length} target(s) — 4a-hover: hover changes no layer (surface or text ΔL ≥ ${HOVER_DELTA}, or an underline); 2-hover: hover text under its requirement and under idle:\n  ${hoverFailures.join("\n  ")}`,
     );
     process.exitCode = 1;
   }

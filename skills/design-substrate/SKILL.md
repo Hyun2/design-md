@@ -172,7 +172,7 @@ S1에서 세션이 끊기므로 **다음 세션은 대화가 아니라 파일을
 | 스크립트 | STEP | 하는 일 |
 |---|---|---|
 | [`scripts/detect.mjs`](scripts/detect.mjs) | 1 · 7 · 8 | STEP 1 결함 목록 탐지 + 이월 목록 출력. findings가 있으면 exit 1 |
-| [`scripts/capture.mjs`](scripts/capture.mjs) | 1 · 5 | manifest 행마다 캡처와 기준 2·3·4 측정. 측정 실패 또는 4b 미달이면 exit 1 |
+| [`scripts/capture.mjs`](scripts/capture.mjs) | 1 · 5 | manifest 행마다 캡처와 기준 2·3·4 측정. 측정 실패, 4b 미달, 또는 이월 목록 밖의 hover 게이트(4a hover · hover 중 기준 2) 미달이면 exit 1 |
 | [`scripts/font-attribution.mjs`](scripts/font-attribution.mjs) | 1 · 5 | STEP 5 항목 6의 렌더·코퍼스 폰트 귀속 검사. 실행 범위와 종료 조건은 스크립트 머리말을 읽는다 |
 | [`scripts/adapters/<라이브러리>.mjs`](scripts/adapters/tailwind.mjs) | — | [`ADAPTERS.md`](ADAPTERS.md) 여섯 질문의 답을 코드로. 목록에 없는 라이브러리는 새 어댑터 파일을 이 SKILL에 추가한다 |
 
@@ -184,9 +184,11 @@ S1에서 세션이 끊기므로 **다음 세션은 대화가 아니라 파일을
 - `detect` — `tokensFile`(토큰 선언 시트) · `sources`(렌더되는 모든 파일의 git glob, 시안 포함) ·
   `primitives`(primitive 파일 glob) · `designDoc`(권위 문서) · `stylesheetBase` ·
   `declarationSheets`(선언을 인정할 `node_modules` 시트) · `runtimeOwned`(라이브러리가 런타임에 쓰는
-  변수) · `utilityExempt`(파일 · 쓰인 그대로의 문자열 · 사유 — 목록 5·6·7·9는 클래스 문자열, 목록 8은
+  변수) · `utilityExempt`(파일 · 쓰인 그대로의 문자열 · 사유 — 목록 5·6·7·9·10은 클래스 문자열, 목록 8은
   `tokensFile`의 선언 `--이름: 값`을 건너뛴다) · `grounds`(글자가 놓이는 면 토큰 이름, 목록 9) ·
-  `vocabularies`(어휘 이름 → 토큰 목록) · `deferred`(이월 목록: `what · measured · threshold · authority · carriedTo`).
+  `vocabularies`(어휘 이름 → 토큰 목록) · `deferred`(이월 목록: `what · measured · threshold · authority · carriedTo`,
+  선택 `capture` — 이 항목이 덮는 hover 게이트 미달 `{ row, target, check: "4a-hover" | "2-hover", theme? }`의 목록.
+  덮인 미달은 `capture.mjs`가 매 실행 출력하고 exit에서 뺀다).
 - `capture` — `rows`(각 행 `id · container · smoke`와 그 밖의 서술 필드) · `themes` · `viewports`
   (`name · width · height`) · `lang` · `base` · `out` · `statesAt`(state를 재는 viewport 이름) ·
   `scroller`(문서 대신 스크롤되는 요소, 없으면 생략) · `setup()`(행 렌더에 필요한 계정·데이터를 읽는다.
@@ -309,6 +311,13 @@ world의 출처를 확정한다. **권위 문서가 있다는 사실이 world가
    1.4.3의 비활성 컴포넌트 면제), α 0은 칠하지 않으므로 뺀다. 요소 자신의 바탕이 가장 불리한 바탕이 아니어서
    생긴 실패는 `utilityExempt`에 실제 바탕과 그 대비를 사유로 올린다. 요소·조상의 `opacity`로 흐려진 글자는
    이 목록도 캡처도 보지 못한다.
+10. **반투명 면(translucent surface)** — primitive가 상태 변형 없이 칠하는 면 색의 α가 1보다 작은 곳. 그 면의
+   명도는 놓인 바탕마다 달라져 사다리의 단 사이에 떨어진다(2026-09 TuBrief 라이브러리 기본 dark field
+   `bg-input/30`: L 0.232, 어느 단도 아니었고 목록 1~9가 보지 않았다). 그래서 목록 7처럼 대비를 계산하지 않고 α만
+   본다. 판정은 목록 5와 같이 클래스를 변형째 컴파일해, 만든 CSS에 state 선택자(어댑터 `STATE_SELECTOR`)가
+   없는 `background-color`를 theme마다 토큰 값까지 푼 α다 — 토큰 선언 자체의 α도 잡힌다. 범위는 라이브러리
+   기본값이 사는 primitive이고, 화면 파일의 반투명 면은 STEP 4의 몫이다. state 면은 기준 4a가 재고, α 0은
+   칠하지 않으므로 뺀다. 반투명이 역할인 면(대화상자 뒤 scrim)과 이월된 면은 `utilityExempt`에 사유와 함께 올린다.
 
 **기준선을 지금 뜬다.** STEP 3이 값을 바꾸기 전에 재현 가능한 before를 확보한다. 라우터에서
 **전 화면**을 뽑아 manifest를 만들고(화면이 20개를 넘으면 표본안을 S1 제출물에 넣되, 승인
@@ -403,9 +412,10 @@ manifest를 그대로 다시 돌린다 — 같은 행, 같은 theme, 같은 view
 | # | 항목 | 통과 조건 |
 |---|---|---|
 | 1 | 빌드·typecheck·test·콘솔 | 실패 0, 신규 콘솔 에러 0 |
-| 2 | 텍스트 대비 | 모든 텍스트/배경 쌍이 WCAG AA(본문 4.5:1, large 3:1). before에서 이미 실패한 쌍은 before 값 이상 |
+| 2 | 텍스트 대비 | 모든 텍스트/배경 쌍이 WCAG AA(본문 4.5:1, large 3:1). before에서 이미 실패한 쌍은 before 값 이상. hover 표본(4a)의 글자는 hover 바탕 위에서도 재고, 요구치 미만이면서 idle 대비보다 낮으면 실패다 — hover가 바탕을 바꿔 글자를 떨어뜨린다(2026-09 TuBrief dark destructive hover α 0.3: 4.89 → 4.04). idle에서 이미 실패한 글자는 위 문장의 몫이다 |
 | 3 | 레이아웃 보존 | manifest가 지정한 컨테이너의 bounding box 폭·높이 변화 ±2% 이내, 문서 세로 길이 변화 ±5% 이내, 신규 가로 overflow 0 |
-| 4a | state 구분 — 면 | hover · selected · disabled가 각 primitive에서 바탕 대비 **면의** ΔL ≥ 0.06으로 구분된다 |
+| 4a hover | state 구분 — hover | hover가 **바꾼 층**이 하나 이상이다: 면 ΔL ≥ 0.06 · 글자 ΔL ≥ 0.06 · 밑줄 등장. 링크 변형과 비선택 탭은 면을 바꾸지 않는다. 표본은 보이는 인스턴스 중 **대화형이고, 현재 상태가 아니고, disabled가 아닌** 가장 큰 것이다 — 정적 카드와 다시 눌러도 변화가 없는 선택된 탭(`aria-selected` · `aria-current` · 체크된 radio · 어댑터 `CURRENT_STATE`)에는 hover가 있을 이유가 없다. 누르면 꺼지는 토글(`aria-pressed` 등)은 표본에 남는다. 대상이 없으면 그 target은 「표본 없음」으로 출력된다 |
+| 4a selected · disabled | state 구분 — 면 | selected · disabled가 각 primitive에서 바탕 대비 **면의** ΔL ≥ 0.06으로 구분된다 |
 | 4b | state 구분 — focus | **포커스 표시**(「용어」 — focus가 idle에 비해 새로 칠하거나 바꾼 층)가 있고, 그 층이 **인접 바탕 대비 ≥ 3:1**(WCAG 2.2 SC 1.4.11 non-text contrast)이며 두께가 0보다 크다. idle에도 있는 색은 통과 근거가 아니다. 판정은 커널 `focusIndicator`(「실행 수단」). 반투명 포커스 표시는 표본 바탕에서 통과해도 결함이다 — STEP 1 목록 7 |
 | 5 | 기능 보존 | manifest의 스모크 흐름 전부가 기대 결과에 도달 |
 | 6 | 렌더 폰트 귀속 | 출하 locale 전부 × viewport 2개에서 OS face(페이지가 싣지 않은 face)가 그린 글리프가 설정 `installedAllowed` 밖에 0개. 기본 상태만이 아니라 보이는 탭을 하나씩 고르고 닫힌 disclosure(`[aria-expanded="false"][aria-controls]`)를 하나씩 연 상태까지 센다 — 닫힌 자막 패널 안의 1,848 글리프가 기본 상태에서 0으로 읽혔다. 문자는 Unicode Script가 아니라 블록으로 가른다(`ー` U+30FC는 Script=Common인 가나 부호). 설정 `corpus`의 글자도 같은 허용 기준이며, 헛다운로드 face와 측정 실패가 0건이다. 실패 원인을 판별할 때는 [`scripts/font-attribution.mjs`](scripts/font-attribution.mjs)와 [`scripts/face-coverage.mjs`](scripts/face-coverage.mjs)의 머리말을 먼저 읽는다 |
