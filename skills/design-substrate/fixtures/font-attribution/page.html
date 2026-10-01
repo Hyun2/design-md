@@ -16,6 +16,11 @@
   The content element holds ♪, a Symbol the web face lacks: allowed there.
   The corpus (corpus.json) is set inside the same element.
 
+  The first press of the second tab, once per browser context, reloads the
+  page while the next `document.fonts.ready` read is pending — a dev server
+  reloading under the walk (tubrief-v2 #116). The row is read again on a
+  fresh page, which no longer reloads.
+
   Mutations, each reverted next:
     - an undeclared script inside the closed disclosure (tubrief-v2 #75);
     - ▲ in interface text, outside the content element (#97);
@@ -61,6 +66,20 @@
       <p class="far">Laid out only when content visibility is overridden</p>
     </main>
     <script>
+      const fontsReady = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(document.fonts), "ready").get;
+      let reloadOnRead = false;
+      document.getElementById("tab-b").addEventListener("click", () => {
+        if (localStorage.getItem("fixture-reloaded")) return;
+        localStorage.setItem("fixture-reloaded", "1");
+        reloadOnRead = true;
+      });
+      Object.defineProperty(document.fonts, "ready", {
+        get() {
+          if (!reloadOnRead) return fontsReady.call(document.fonts);
+          setTimeout(() => location.reload(), 50);
+          return new Promise(() => {});
+        },
+      });
       for (const tab of document.querySelectorAll('[role="tab"]')) {
         tab.addEventListener("click", () => {
           for (const t of document.querySelectorAll('[role="tab"]')) {
