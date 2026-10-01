@@ -484,7 +484,7 @@ async function measureStates(page) {
           surfaceDelta,
           textDelta,
           underline,
-          pass: surfaceDelta >= HOVER_DELTA || (textDelta ?? 0) >= HOVER_DELTA || underline,
+          pass: surfaceDelta >= HOVER_DELTA,
           text,
         };
       }
