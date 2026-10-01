@@ -1364,8 +1364,50 @@ async function waitReady(frame) {
   }
 }
 
+// REFERENCE.md operability 「판정」: a press is read once the requests it
+// started — data (fetch, xhr) and route code (script) — have finished and
+// none has started or ended for QUIET_MS, or at NAVIGATION_MS. A client-side
+// route change moves its URL and selection only after its loader returns.
+const NAVIGATION_TYPES = new Set(["fetch", "xhr", "script"]);
+const QUIET_MS = 200;
+const NAVIGATION_MS = 10000;
+const requestLogs = new WeakMap();
+function requestLog(page) {
+  let log = requestLogs.get(page);
+  if (log) return log;
+  log = { seq: 0, last: 0, open: new Map() };
+  page.on("request", (request) => {
+    if (!NAVIGATION_TYPES.has(request.resourceType())) return;
+    let frame;
+    try {
+      frame = request.frame();
+    } catch {
+      return; // a service worker's request belongs to no frame
+    }
+    log.seq += 1;
+    log.last = Date.now();
+    log.open.set(request, { frame, seq: log.seq });
+  });
+  const done = (request) => {
+    if (log.open.delete(request)) log.last = Date.now();
+  };
+  page.on("requestfinished", done);
+  page.on("requestfailed", done);
+  requestLogs.set(page, log);
+  return log;
+}
+async function settle(frame, log, mark) {
+  const deadline = Date.now() + NAVIGATION_MS;
+  while (Date.now() < deadline) {
+    const busy = [...log.open.values()].some((entry) => entry.frame === frame && entry.seq > mark);
+    if (!busy && Date.now() - log.last >= QUIET_MS) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
 // true when the surface responded, otherwise the reason it is dead.
 async function operate(frame, handle, target) {
+  const log = requestLog(frame.page());
   // Playwright scrolls a target just into view, which parks it under a
   // sticky header. Centre it first, before arming, so this scroll is not
   // mistaken for the control's response.
@@ -1373,6 +1415,7 @@ async function operate(frame, handle, target) {
   await frame.waitForTimeout(100);
   const startUrl = frame.url();
   await frame.evaluate(`(${ARM})()`);
+  const mark = log.seq;
   try {
     if (target.text) await handle.type("a", { timeout: 2000 });
     else await handle.click({ timeout: 2000 });
@@ -1386,6 +1429,7 @@ async function operate(frame, handle, target) {
   // inputs are judged only by what the surface does in response.
   try {
     await frame.waitForTimeout(target.text ? 1500 : 600);
+    await settle(frame, log, mark);
     const state = await frame.evaluate(`(${OPERATION_STATE})()`);
     return { verdict: state.changed ? true : NO_CHANGE, kind: state.kind };
   } catch {
