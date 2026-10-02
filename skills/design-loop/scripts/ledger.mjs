@@ -710,7 +710,7 @@ if (command === "check") {
   for (const ticket of owner) console.log(`owner       ${show(ticket)}`);
   for (const ticket of approved) console.log(`approved    ${show(ticket)}`);
   for (const ticket of asking) console.log(`ask owner   ${show(ticket)} (${SOURCE.agent}; ${APPROVED} once the owner says go)`);
-  const [pick] = [...fixes, ...open];
+  const [pick] = [...fixes, ...owner, ...approved];
   console.log(pick ? `pick: #${pick.number}` : `pick: none${asking.length ? " — ask the owner about the tickets above" : ""}`);
 } else {
   console.error("usage: ledger.mjs <close|check|sync|audit|frontier> …");
