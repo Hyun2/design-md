@@ -1,8 +1,9 @@
 <!doctype html>
 <!--
-  A comp of reveal-operating.html (tubrief-v2 #114). It keeps the toggle and
-  the panel, and drops the panel's "Download transcript" without declaring it:
-  the G2 Reader comp did the same and passed. Run: see reveal-operating.html.
+  A comp of reveal-operating.html (tubrief-v2 #114): the toggle opens a panel
+  that keeps "Download transcript". The G2 Reader comp dropped it undeclared
+  and passed; that state is this file at its red commit. Run: see
+  reveal-operating.html.
 -->
 <html lang="en">
   <head>
@@ -20,6 +21,7 @@
       <button type="button" aria-expanded="false" aria-controls="panel" data-comp-control="toggle" data-comp-accent="1">Show transcript</button>
       <section id="panel" hidden>
         <p>00:00 Hello</p>
+        <button type="button" data-comp-control="download" data-comp-accent="1">Download transcript</button>
       </section>
     </main>
     <script>
