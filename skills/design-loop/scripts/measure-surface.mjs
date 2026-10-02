@@ -579,7 +579,11 @@ const MEASURE = (rootSelector) => `async () => {
     const heading = parent.closest(HEADING);
     const ownHeading = heading && root.contains(heading) ? heading : null;
     const px = parseFloat(getComputedStyle(parent).fontSize);
-    if ((!ownHeading && px <= BODY_PX) || !visible(ownHeading || parent)) { prev = null; continue; }
+    // The letters' own rectangles prove they are drawn; a \`display: contents\`
+    // span has none of its own, so the element's box is not asked for.
+    let muted = Boolean(parent.closest('[aria-hidden="true"],[inert]'));
+    for (let a = parent; a && !muted && a.nodeType === 1; a = a.parentElement) muted = Number(getComputedStyle(a).opacity) === 0;
+    if ((!ownHeading && px <= BODY_PX) || muted) { prev = null; continue; }
     const block = blockOf(n);
     const owner = ownHeading || block;
     const exemptAt = exemptReason(parent, 16) ? parent : null;
@@ -595,8 +599,9 @@ const MEASURE = (rootSelector) => `async () => {
       const rect = [...range.getClientRects()].find((r) => r.width > 0 && r.height > 0);
       range.detach();
       if (!rect) continue;
-      // A new line starts more than half a letter lower — this letter's size.
-      if (prev && !gap && prev.block === block && rect.top - prev.top > px / 2
+      // A new line starts more than half a letter lower, measured by the larger
+      // of the two letters: a small letter on a big one's baseline sits lower.
+      if (prev && !gap && prev.owner === owner && prev.block === block && rect.top - prev.top > Math.max(px, prev.px) / 2
         && wordChar.test(prev.ch) && wordChar.test(ch) && (hangulChar.test(prev.ch) || hangulChar.test(ch))) {
         let byExempt = units.get(owner);
         if (!byExempt) units.set(owner, (byExempt = new Map()));
@@ -605,7 +610,7 @@ const MEASURE = (rootSelector) => `async () => {
         unit.px = Math.max(unit.px, px);
         unit.splits.push(prev.ch + '⏎' + ch);
       }
-      prev = { ch, top: rect.top, block };
+      prev = { ch, top: rect.top, px, block, owner };
       gap = false;
     }
   }
