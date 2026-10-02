@@ -290,6 +290,9 @@ node <skill>/scripts/ledger.mjs close <gate-issue> --map <process-map> --comment
 node <skill>/scripts/ledger.mjs audit --map <process-map> --product <product-map> \
   --since <제품 채택일> --process-since <공정 채택 시각>
 
+# 다음 티켓 — 이 제품 지도의 공정 수정 → source:owner → owner-approved인 source:agent 순으로 pick 한 줄
+node <skill>/scripts/ledger.mjs frontier --map <process-map> --product <product-map>
+
 # 개별 명령 (진단용)
 node <skill>/scripts/ledger.mjs check <gate-issue> [--file <draft>]
 node <skill>/scripts/ledger.mjs sync  <gate-issue> --map <process-map>
@@ -303,7 +306,13 @@ node <skill>/scripts/ledger.mjs sync  <gate-issue> --map <process-map>
 직접 치는 경우, 그리고 생성된 티켓을 나중에 지우는 경우. `audit`은 ledger 줄과 공정 지도의
 티켓을 **대조**하므로 두 경우 모두 다음 gate 전에 드러난다.
 
-`audit`이 통과하면 티켓을 집기 전에 출력의 `next:` 줄을 실행한다.
+`audit`이 통과하면 티켓을 집기 전에 출력의 `next:` 줄을 실행한다 — skill을 읽고 `frontier`의 `pick:`을 집는다.
+
+**티켓은 출처 순으로 집는다.** 제품 지도의 하위 티켓은 만들 때 출처 라벨 하나를 단다: owner 지적이나 owner가
+승인한 계획이면 `source:owner`, 에이전트가 측정 · 판독에서 스스로 찾았으면 `source:agent`. 하나가 아니면
+`audit` · `frontier`가 `UNSOURCED`로 멈춘다. `source:agent` 티켓은 owner가 진행을 승인해 `owner-approved`를
+달기 전에는 `ask owner` 목록에만 나온다. 지도 순서는 생성 순서일 뿐이다 — 2026-10 TuBrief(tubrief-v2
+#119)는 에이전트가 찾은 #100을 G3을 막는 owner 결정보다 먼저 냈다.
 
 **두 방어선이 못 잡는 것.** ledger에 애초에 적히지 않은 지적. `check`는 "적힌 줄이 분류됐는가"만
 판정한다. 그러므로 **ledger는 gate가 끝난 뒤에 몰아 쓰지 않고, owner 지적이 나올 때마다 즉시 그
