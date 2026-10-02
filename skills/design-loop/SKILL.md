@@ -181,6 +181,12 @@ world는 고정하고 layout만 세 가지로 만든다. world와 composition의
    함께 준다([`REFERENCE.md`](REFERENCE.md) 「Shipped-world check」)
 3. 각 안에서 **지워도 되는 element를 스스로 지목**한다 — 테두리·배경을 가진 컨테이너도
    element다([`REFERENCE.md`](REFERENCE.md) 체크리스트 13)
+4. 각 안에 **`DESIGN.md` 문장 대조표**를 붙인다 — `DESIGN.md`에서 이 surface의 요소에 색 · 활자 ·
+   형태를 정하는 문장마다, 그 안의 렌더가 그 요소에 실제로 쓰는 토큰을 나란히 적는다. 다른 줄이
+   있으면 그 안을 문장대로 고치거나, 문장을 바꾸는 amendment(STEP 3)로 G2에 함께 올린다 — 표 없이
+   제출하면 다른 줄은 조용한 위반이 된다. 2026-09 TuBrief G2 시안(tubrief-v2 #123)은 활성 스크립트
+   행을 signal로 칠했는데 `DESIGN.md`는 그 바탕을 signal wash로 적고 있었고, G2와 구현을 지나 5일
+   뒤 G3에서 amendment 문안을 쓰다가 드러났다
 
 **두 번 고쳐도 안 맞으면 세 번째 전에 쿼리를 읽는다.** 같은 영역의 배치를 두 번 바꿔도 균형이
 맞지 않으면, 세 번째 배치 전에 그 영역에 데이터를 공급하는 쿼리·API 응답을 읽는다. 디자인이
@@ -242,12 +248,17 @@ owner에게 보여준다.** G1에서 승인된 rule 개정은 여기서 반영�
 전체에서 걷어낸다. Named Rules, Colors, Components, Do's and Don'ts, 그리고 sidecar의
 `narrative`가 같은 문장을 나눠 갖고 있으므로 한 곳만 고치면 나머지가 낡는다.
 
+`DESIGN.md`에는 기준(「ΔL ≥ 0.10」)을 적고 렌더를 잰 값은 적지 않는다 — 잰 값은 gate 증거(측정
+JSON · 이슈 코멘트)에 둔다. 문서 안의 측정값은 다음 변경에서 낡는다: TuBrief `DESIGN.md`가
+world 채택 때(2026-09-22) 적은 「measured ΔL 0.133」은, 운영에서 0.5879를 거쳐 0.128이 됐다(tubrief-v2 #123).
+
 **출하 범위.** 시안·문서 브랜치를 배포 브랜치로 fast-forward하는 프로젝트는 push 절차에
 [출하 범위 검사](scripts/ship-scope.mjs)를 연결하고, 목록이 비어 있지 않으면 owner의 출하
 결정을 받는다. 호출과 판정은 스크립트 머리말을 따른다.
 
 **완료 조건:** 폐기된 rule의 잔존 언급이 `DESIGN.md`·sidecar·surface brief에서 0건이고, surface
-brief에 옮겨 적힌 world 값이 0건이다(STEP 4). owner가 ship을 승인했고, 커밋이 만들어졌다.
+brief에 옮겨 적힌 world 값이 0건이다(STEP 4). 출하 commit에서 다시 만든 STEP 5의 `DESIGN.md` 문장
+대조표에 다른 줄이 0건이다(문장이나 렌더를 고쳐서). owner가 ship을 승인했고, 커밋이 만들어졌다.
 
 ## 일반화 loop (매 gate마다 강제)
 
