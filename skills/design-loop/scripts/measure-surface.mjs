@@ -25,8 +25,8 @@
  * cannot be read), a painted box set beside another with an empty band of
  * 4rem and 15% of its height, a display heading whose wrap mode left its lines
  * under 70% of its box, a sentence of 24+ characters printed twice, text
- * wrapped or cut in a column under 6em of its own size, a heading that breaks
- * a Korean word across lines.
+ * wrapped or cut in a column under 6em of its own size, a heading or text
+ * above 16px that breaks a Korean word across lines.
  * `data-comp-exempt="<criterion>: <reason>"` takes an element out of that
  * judgement and into `relational.exempted`, which the submission shows the
  * owner. Only 8 needs a markup contract: `data-comp-control="<name>"` on each
@@ -537,12 +537,17 @@ const MEASURE = (rootSelector) => `async () => {
     }
   }
 
-  // 16 — word split: does a heading break a Korean word across lines? Under
-  // \`word-break: normal\` the browser may break between any two syllables. A
-  // line break is a split when the characters on its two sides are both
-  // letters or digits, no space, <br> or block edge lies between them, and one
-  // of them is Hangul — read off the glyphs, not \`lang\`, so a Korean title on
-  // an English page counts. Cases: REFERENCE.md criterion 16.
+  // 16 — word split: does a heading, or text set larger than body, break a
+  // Korean word across lines? Under \`word-break: normal\` the browser may break
+  // between any two syllables. A line break is a split when the characters on
+  // its two sides are both letters or digits, no space, <br> or block edge lies
+  // between them, and one of them is Hangul — read off the glyphs, not \`lang\`,
+  // so a Korean title on an English page counts. Judged: every h1–h6 at any
+  // size, and every block of text above 16px, the browser's body size and the
+  // base of \`ratioTo16\` — a tag alone missed a paragraph set at title size.
+  // Cases: REFERENCE.md criterion 16.
+  const BODY_PX = 16;
+  const HEADING = 'h1,h2,h3,h4,h5,h6';
   const hangulChar = /\\p{Script=Hangul}/u;
   const wordChar = /[\\p{L}\\p{N}]/u;
   const blockOf = (node) => {
@@ -550,28 +555,49 @@ const MEASURE = (rootSelector) => `async () => {
     while (el && el.parentElement && ['inline', 'contents'].includes(getComputedStyle(el).display)) el = el.parentElement;
     return el;
   };
+  const pxOf = (textNode) => parseFloat(getComputedStyle(textNode.parentElement).fontSize);
+  // Hidden descendants neither draw a letter nor separate two: a hidden space
+  // would mask a split, and a visibility-hidden letter still has a box.
+  const shown = (el) => document.createTreeWalker(el, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+    acceptNode: (n) => {
+      if (n.nodeType !== 1) return NodeFilter.FILTER_ACCEPT;
+      const st = getComputedStyle(n);
+      return st.display === 'none' || st.visibility !== 'visible' ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+    },
+  });
+  const inHeading = (node) => {
+    const h = node.parentElement && node.parentElement.closest(HEADING);
+    return Boolean(h && root.contains(h));
+  };
+  const largeBlocks = new Set();
+  const scan = shown(root);
+  for (let n = scan.nextNode(); n; n = scan.nextNode()) {
+    if (n.nodeType !== 3 || !n.nodeValue.trim() || inHeading(n) || pxOf(n) <= BODY_PX) continue;
+    largeBlocks.add(blockOf(n));
+  }
+  const candidates = [
+    ...[...root.querySelectorAll(HEADING)].map((el) => ({ el, heading: true })),
+    ...[...largeBlocks].map((el) => ({ el, heading: false })),
+  ];
   const wordSplits = [];
-  for (const h of root.querySelectorAll('h1,h2,h3,h4,h5,h6')) {
-    if (!visible(h)) continue;
-    const size = parseFloat(getComputedStyle(h).fontSize);
+  for (const { el, heading } of candidates) {
+    if (!visible(el)) continue;
+    // A heading splits at half its own size; a large block at half its largest letter.
+    let size = heading ? parseFloat(getComputedStyle(el).fontSize) : 0;
     const splits = [];
     let prev = null;
     let gap = false;
-    // Hidden descendants neither draw a letter nor separate two: a hidden space
-    // would mask a split, and a visibility-hidden letter still has a box.
-    const walk = document.createTreeWalker(h, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
-      acceptNode: (n) => {
-        if (n.nodeType !== 1) return NodeFilter.FILTER_ACCEPT;
-        const st = getComputedStyle(n);
-        return st.display === 'none' || st.visibility !== 'visible' ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
-      },
-    });
+    const walk = shown(el);
     for (let n = walk.nextNode(); n; n = walk.nextNode()) {
       if (n.nodeType === 1) {
         if (n.tagName === 'BR') gap = true;
         continue;
       }
       const block = blockOf(n);
+      // A large block answers for its own large letters only: body-size text
+      // inside it, and blocks nested in it, are judged on their own or not at all.
+      if (!heading && (block !== el || pxOf(n) <= BODY_PX)) { prev = null; continue; }
+      if (!heading) size = Math.max(size, pxOf(n));
       const s = n.nodeValue;
       for (let i = 0; i < s.length;) {
         const ch = String.fromCodePoint(s.codePointAt(i));
@@ -593,12 +619,13 @@ const MEASURE = (rootSelector) => `async () => {
       }
     }
     if (splits.length === 0) continue;
-    const text = (h.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 32);
-    wordSplits.push({ tag: h.tagName.toLowerCase(), px: size, text, splits });
+    const text = (el.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 32);
+    const what = heading ? 'heading' : size + 'px text';
+    wordSplits.push({ tag: el.tagName.toLowerCase(), px: size, text, splits });
     // The split letters stay in \`wordSplits\`: they move with the width, and
-    // the sweep folds one heading's widths into one line by its digits alone.
-    if (!exempt(h, 16, 'heading ' + text)) {
-      relationalDefects.push('criterion 16: heading "' + text + '" breaks a Korean word across lines ' + splits.length + ' time(s) (relational.wordSplits)');
+    // the sweep folds one element's widths into one line by its digits alone.
+    if (!exempt(el, 16, what + ' ' + text)) {
+      relationalDefects.push('criterion 16: ' + what + ' "' + text + '" breaks a Korean word across lines ' + splits.length + ' time(s) (relational.wordSplits)');
     }
   }
 
