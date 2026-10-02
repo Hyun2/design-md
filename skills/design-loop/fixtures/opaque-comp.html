@@ -1,10 +1,10 @@
 <!doctype html>
 <!--
   A comp of embedded-player.html that replaces the third-party player with a
-  poster and its own play button (tubrief-v2 #115). Whatever the player held
-  inside its frame — a fullscreen button here, a seek bar and volume in the
-  G2 Reader comp — is gone, and the correspondence check cannot see inside a
-  frame of another origin, so nothing asked the owner.
+  poster and its own play button (tubrief-v2 #115), and declares what it
+  dropped of the player's own controls. The G2 Reader comp dropped a seek bar,
+  fullscreen, volume and caption menu undeclared and nothing asked the owner;
+  that state is this file at its red commit.
 
   node <skill>/fixtures/serve.mjs 4797 -- node <skill>/scripts/measure-surface.mjs \
     --urls http://127.0.0.1:4797/opaque-comp.html \
@@ -29,6 +29,7 @@
       <h1>Talk</h1>
       <div class="poster"></div>
       <button type="button" data-comp-control="play" data-comp-accent="1">Play</button>
+      <i hidden data-comp-opaque="localhost:4797">the player's fullscreen button is dropped: the poster and play button replace the player</i>
     </main>
     <script>
       const play = document.querySelector("button");
