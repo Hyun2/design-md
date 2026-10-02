@@ -1376,7 +1376,10 @@ async function checkOperability(page, iframe, { collect = false, skip = () => fa
               // opened in place (tubrief-v2 #114: a transcript panel's download).
               const stayed = frame.url() === home;
               const after = await frame.evaluate(`(${INVENTORY})()`);
-              inventory.controls.push(...after.controls.filter((c) => c.container === "popup" || (stayed && !atRest.has(controlId(c)))));
+              for (const c of after.controls) {
+                if (c.container === "popup") inventory.controls.push(c);
+                else if (stayed && !atRest.has(controlId(c))) inventory.controls.push({ ...c, revealed: true });
+              }
             }
             if (scope !== null) {
               for (const miss of await frame.evaluate(`(${POPUP_SCOPE(scope)})()`)) {
@@ -1545,10 +1548,13 @@ function pairs(a, b) {
 // has one of the same kind and place saying the same thing. Five or more
 // links at one place with differing labels are data — cards leading to the
 // items the comp sampled and production fetched — so they become one list
-// unit that pairs with any list of the same kind and place. Only links: in the
-// G1 comp the subject chips, the three filters and the search box were sibling
-// spans with hand-written labels, and any rule that let a varied group of
-// controls count as data hid the search box inside "a list of 12".
+// unit that pairs with any list of the same kind and place. Only links, or
+// rows a press revealed in place: in the G1 comp the subject chips, the three
+// filters and the search box were sibling spans with hand-written labels, and
+// any rule that let a varied group of controls at rest count as data hid the
+// search box inside "a list of 12". A revealed panel's repeated rows are its
+// content — a transcript's seek buttons, 312 in the comp against 159 in
+// production (tubrief-v2 #114) — and were each reported unpaired or missing.
 function unitsOf(side, other) {
   const seen = new Set();
   const controls = side.controls.filter((c) => {
@@ -1565,7 +1571,7 @@ function unitsOf(side, other) {
   for (const members of byPlace.values()) {
     const hits = members.filter((m) => other.controls.some((o) => pairs(m, o)));
     const varied = new Set(members.map((m) => m.labels.join("\u0000"))).size > 1;
-    if (members.length >= 5 && varied && members.every((m) => m.link)) {
+    if (members.length >= 5 && varied && members.every((m) => m.link || m.revealed)) {
       const fresh = members.find((m) => m.fresh !== null)?.fresh ?? null;
       units.push({ kind: members[0].kind, container: members[0].container, list: members.length, labels: members[0].labels, fresh });
     } else {
