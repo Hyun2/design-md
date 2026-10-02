@@ -706,7 +706,11 @@ if (command === "check") {
   const owner = open.filter((ticket) => sourceOf(ticket) === "owner");
   const approved = open.filter((ticket) => sourceOf(ticket) === "agent" && ticket.labels.includes(APPROVED));
   const asking = open.filter((ticket) => sourceOf(ticket) === "agent" && !ticket.labels.includes(APPROVED));
-  for (const ticket of fixes) console.log(`process     ${show(ticket)}`);
+  // The gate a fix came from: fixes of one gate are claimed together.
+  for (const ticket of fixes) {
+    const gate = ticket.body.match(/ledger-source: (\d+) ::/)?.[1];
+    console.log(`process     ${show(ticket)}${gate ? ` (from #${gate})` : ""}`);
+  }
   for (const ticket of owner) console.log(`owner       ${show(ticket)}`);
   for (const ticket of approved) console.log(`approved    ${show(ticket)}`);
   for (const ticket of asking) console.log(`ask owner   ${show(ticket)} (${SOURCE.agent}; ${APPROVED} once the owner says go)`);

@@ -290,7 +290,7 @@ node <skill>/scripts/ledger.mjs close <gate-issue> --map <process-map> --comment
 node <skill>/scripts/ledger.mjs audit --map <process-map> --product <product-map> \
   --since <제품 채택일> --process-since <공정 채택 시각>
 
-# 다음 티켓 — 이 제품 지도의 공정 수정 → source:owner → owner-approved인 source:agent 순으로 pick 한 줄
+# 다음 티켓 — 출력 마지막 줄 pick: (순서는 아래 「티켓은 출처 순으로 집는다」)
 node <skill>/scripts/ledger.mjs frontier --map <process-map> --product <product-map>
 
 # 개별 명령 (진단용)
@@ -308,7 +308,8 @@ node <skill>/scripts/ledger.mjs sync  <gate-issue> --map <process-map>
 
 `audit`이 통과하면 티켓을 집기 전에 출력의 `next:` 줄을 실행한다 — skill을 읽고 `frontier`의 `pick:`을 집는다.
 
-**티켓은 출처 순으로 집는다.** 제품 지도의 하위 티켓은 만들 때 출처 라벨 하나를 단다: owner 지적이나 owner가
+**티켓은 출처 순으로 집는다.** `frontier`는 제품 지도를 막는 공정 수정(`process`, 같은 gate에서 온 것끼리 `from #<n>`)을
+먼저 낸다. 다음은 제품 지도의 하위 티켓이고, 티켓마다 만들 때 출처 라벨 하나를 단다: owner 지적이나 owner가
 승인한 계획이면 `source:owner`, 에이전트가 측정 · 판독에서 스스로 찾았으면 `source:agent`. 하나가 아니면
 `audit` · `frontier`가 `UNSOURCED`로 멈춘다. `source:agent` 티켓은 owner가 진행을 승인해 `owner-approved`를
 달기 전에는 `ask owner` 목록에만 나온다. 지도 순서는 생성 순서일 뿐이다 — 2026-10 TuBrief(tubrief-v2
