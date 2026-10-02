@@ -1,0 +1,39 @@
+<!doctype html>
+<!--
+  A comp of embedded-player.html that replaces the third-party player with a
+  poster and its own play button (tubrief-v2 #115). Whatever the player held
+  inside its frame — a fullscreen button here, a seek bar and volume in the
+  G2 Reader comp — is gone, and the correspondence check cannot see inside a
+  frame of another origin, so nothing asked the owner.
+
+  node <skill>/fixtures/serve.mjs 4797 -- node <skill>/scripts/measure-surface.mjs \
+    --urls http://127.0.0.1:4797/opaque-comp.html \
+    --baseline http://127.0.0.1:4797/embedded-player.html \
+    --viewport 1440 --height 900 --sweep off --out /tmp/opaque.json
+  (from a project root that resolves Playwright)
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>opaque comp</title>
+    <style>
+      body { margin: 0; background: #111; color: #eee; font: 16px/1.5 sans-serif; }
+      main { padding: 24px; display: grid; gap: 16px; justify-items: start; }
+      h1 { font-size: 40px; margin: 0; }
+      .poster { width: 640px; height: 360px; background: #333; }
+      button { height: 36px; padding: 0 16px; border: 0; background: #0aa; color: #000; font: inherit; }
+    </style>
+  </head>
+  <body>
+    <main data-comp-world>
+      <h1>Talk</h1>
+      <div class="poster"></div>
+      <button type="button" data-comp-control="play" data-comp-accent="1">Play</button>
+    </main>
+    <script>
+      const play = document.querySelector("button");
+      play.addEventListener("click", () => { play.textContent = play.textContent === "Play" ? "Pause" : "Play"; });
+      document.documentElement.setAttribute("data-comp-ready", "");
+    </script>
+  </body>
+</html>

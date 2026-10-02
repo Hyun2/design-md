@@ -57,8 +57,12 @@
  * comp control with no pair, or an operating control the comp dropped, fails
  * the run unless it is declared — `data-comp-new="<reason>"` on the new
  * control, `<i hidden data-comp-dropped="<operating label>">reason</i>` for a
- * dropped one. Without `--baseline` the output says `baseline: null`, which is
- * "not checked", never "no mismatch".
+ * dropped one. A region of the operating screen no inventory can read into —
+ * a frame of another origin, media with the browser's own controls — fails
+ * the run until the comp declares what it keeps and drops there,
+ * `<i hidden data-comp-opaque="<host | video | audio>">…</i>`. Without
+ * `--baseline` the output says `baseline: null`, which is "not checked",
+ * never "no mismatch".
  *
  * The same run is also the fit check of 「Comp fidelity conditions」 10, read
  * before any control is touched: the surface — each frame of a shell, or the
@@ -992,7 +996,17 @@ const INVENTORY = `() => {
   });
   const dropped = [...document.querySelectorAll('[data-comp-dropped]')]
     .map((el) => ({ label: clean(el.getAttribute('data-comp-dropped')), reason: clean(el.textContent) }));
-  return { controls, dropped };
+  const opaque = [...document.querySelectorAll('[data-comp-opaque]')]
+    .map((el) => ({ region: clean(el.getAttribute('data-comp-opaque')), reason: clean(el.textContent) }));
+  return { controls, dropped, opaque };
+}`;
+
+// Regions of the operating screen whose controls no inventory can read
+// (tubrief-v2 #115): media drawing the browser's own controls. Frames of
+// another origin are the other kind, found from the frame tree.
+const NATIVE_MEDIA = `() => {
+  const visible = ${VISIBLE};
+  return [...document.querySelectorAll('video[controls],audio[controls]')].filter(visible).map((el) => el.tagName.toLowerCase());
 }`;
 
 const ARM = `() => {
@@ -1568,7 +1582,7 @@ function correspond(comp, base) {
     ? others.some((o) => o.list && o.kind === unit.kind && o.container === unit.container)
     : unit.paired;
   const show = (c) => `${c.kind}/${c.container} ${c.list ? `list of ${c.list}` : JSON.stringify(c.labels[0] ?? "")}`;
-  const result = { paired: 0, new: [], dropped: [], unpaired: [], missing: [] };
+  const result = { paired: 0, new: [], dropped: [], unpaired: [], missing: [], opaque: [], undeclaredOpaque: [] };
   // A card is often two links (thumbnail and title) to one item.
   const once = new Set();
   const first = (side, c) => !once.has(`${side}${show(c)}`) && once.add(`${side}${show(c)}`);
@@ -1583,6 +1597,13 @@ function correspond(comp, base) {
     const declared = comp.dropped.find((d) => b.labels.includes(d.label));
     if (declared?.reason) result.dropped.push({ control: show(b), reason: declared.reason });
     else result.missing.push({ control: show(b), labels: b.labels, reason: declared ? "data-comp-dropped without a reason" : "operating control absent from the comp" });
+  }
+  // A region the check cannot see into answers for its controls only through
+  // the comp's declaration of what it keeps or drops there (tubrief-v2 #115).
+  for (const region of base.opaque ?? []) {
+    const declared = comp.opaque.find((d) => d.region === region);
+    if (declared?.reason) result.opaque.push({ region, reason: declared.reason });
+    else result.undeclaredOpaque.push({ region, reason: declared ? "data-comp-opaque without a reason" : "no data-comp-opaque declaration" });
   }
   return result;
 }
@@ -1609,23 +1630,36 @@ async function baselineInventory(browser, state, width, heightPx) {
   const entry = await baselinePage(browser, state, width, heightPx);
   if (!entry.inventory) {
     const rest = await entry.page.evaluate(`(${INVENTORY})()`);
+    // Read before any press moves the page: what no inventory can see into.
+    const opaque = await entry.page.evaluate(`(${NATIVE_MEDIA})()`);
+    for (const embed of framesOf(entry.page.mainFrame()).embeds) {
+      const element = await embed.frameElement();
+      if (!(await element.evaluate((el, source) => (0, eval)(source)(el), VISIBLE))) continue;
+      const url = new URL(embed.url());
+      opaque.push(url.host || url.protocol);
+    }
     const counts = new Map();
     for (const c of rest.controls) counts.set(c.path, (counts.get(c.path) ?? 0) + 1);
     const report = await checkOperability(entry.page, null, {
       collect: true,
       skip: (c) => !c || counts.get(c.path) >= 5 || /(^|>)a$/.test(c.path),
     });
-    entry.inventory = report.inventory;
+    entry.inventory = { ...report.inventory, opaque: [...new Set(opaque)] };
   }
   return entry.inventory;
 }
 
-// The operating screen's controls across its states: a control any state
-// shows is one the comp pairs or declares.
+// The operating screen across its states: a control or an opaque region any
+// state shows is one the comp pairs or declares.
 async function baselineStatesInventory(browser, states, width, heightPx) {
   const controls = [];
-  for (const state of states) controls.push(...(await baselineInventory(browser, state, width, heightPx)).controls);
-  return { controls, dropped: [] };
+  const opaque = new Set();
+  for (const state of states) {
+    const inventory = await baselineInventory(browser, state, width, heightPx);
+    controls.push(...inventory.controls);
+    for (const region of inventory.opaque) opaque.add(region);
+  }
+  return { controls, dropped: [], opaque: [...opaque] };
 }
 
 async function baselineTokens(browser, state, width, heightPx) {
@@ -1832,6 +1866,9 @@ async function main() {
           result.correspondence = { baseline: baselines[index], ...correspond(inventory, base) };
           for (const u of result.correspondence.unpaired) failed.push(`${key}: unpaired control ${u.control} (${u.reason})`);
           for (const m of result.correspondence.missing) failed.push(`${key}: missing control ${m.control} (${m.reason})`);
+          for (const o of result.correspondence.undeclaredOpaque) {
+            failed.push(`${key}: operating region ${o.region} holds controls this check cannot read (${o.reason}) — declare what the comp keeps or drops of them`);
+          }
           if (shippedWorld) {
             // Tokens are a property of the world, not of the session: the first state.
             const operatingTokens = await baselineTokens(browser, baselines[index][0], w, h);
