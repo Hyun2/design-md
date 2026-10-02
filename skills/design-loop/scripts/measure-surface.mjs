@@ -99,7 +99,8 @@
  *             default 390x844,768x1024,1440x900,1920x1080 (REFERENCE.md
  *             「Comp fidelity conditions」 10)
  *   --root      selector the measurement is scoped to, default body
- *   --out       output file, default measure.json
+ *   --out       output file, default measure.json; a failed run is also kept
+ *             as <out>.failed-<time>.json, which no later run writes over
  *   --baseline  comma-separated operating screens, one per --urls entry,
  *             each rendering the frame's state (locale, record, content
  *             language, theme); a frame is compared at its own size. An
@@ -1347,6 +1348,7 @@ async function checkOperability(page, iframe, { collect = false, skip = () => fa
       verdict: operated.verdict === NO_CHANGE ? `${NO_CHANGE}, even after leaving by ${via}` : operated.verdict,
       kind: operated.kind,
       replaced: operated.replaced ?? false,
+      trace: operated.trace ?? null,
     };
   };
   // One judgement of one target. A selected target that did not answer is
@@ -1363,7 +1365,7 @@ async function checkOperability(page, iframe, { collect = false, skip = () => fa
       ...(again.reason ? { reason: again.reason } : {}) };
     // A dead or exempt verdict leaves the sibling's state behind.
     if (again.verdict !== true) await reload();
-    return { verdict: again.verdict, kind: again.kind ?? null, replaced: again.replaced ?? false, outcome, reselected };
+    return { verdict: again.verdict, kind: again.kind ?? null, replaced: again.replaced ?? false, outcome, reselected, trace: again.trace ?? null };
   };
   const describe = (judged) => judged.outcome === "dead" ? `dead (${judged.verdict})`
     : judged.replaced ? "live (document replaced in place)" : judged.outcome;
@@ -1380,6 +1382,8 @@ async function checkOperability(page, iframe, { collect = false, skip = () => fa
     report.checked += 1;
     try {
       let judged = await judge(index, target);
+      // What each judgement saw when nothing answered, first and second.
+      const judgements = [judged.trace ?? null];
       // A dead verdict, or a live one whose document was replaced where it
       // stood, can be the environment's rather than the control's: judge it
       // once more on a fresh document. Two verdicts that disagree are an
@@ -1387,8 +1391,9 @@ async function checkOperability(page, iframe, { collect = false, skip = () => fa
       if (judged.outcome === "dead" || judged.replaced) {
         await reload();
         const second = await judge(index, target);
+        judgements.push(second.trace ?? null);
         if (second.outcome !== judged.outcome) {
-          report.unstable.push({ name: target.name, first: describe(judged), second: describe(second) });
+          report.unstable.push({ name: target.name, first: describe(judged), second: describe(second), judgements });
           await reload();
           continue;
         }
@@ -1424,7 +1429,7 @@ async function checkOperability(page, iframe, { collect = false, skip = () => fa
         // A popup or filter left open would decide the next target's verdict.
         await reload();
       } else {
-        report.dead.push({ name: target.name, reason: judged.verdict });
+        report.dead.push({ name: target.name, reason: judged.verdict, judgements });
       }
     } catch (error) {
       if (error instanceof NotReady) throw error;
@@ -1446,12 +1451,15 @@ class NotReady extends Error {}
 // A Playwright call whose document went away under it: a navigation destroyed
 // the execution context, or the frame was detached from a replaced shell.
 const LOST_CONTEXT = /Execution context was destroyed|detached/i;
+// When each frame last declared ready, for a press's trace.
+const readyAt = new WeakMap();
 async function waitReady(frame) {
   try {
     await frame.waitForFunction(() => document.documentElement.hasAttribute("data-comp-ready"), null, { timeout: READY_MS });
   } catch {
     throw new NotReady(`${frame.url()} did not declare data-comp-ready within ${READY_MS / 1000}s`);
   }
+  readyAt.set(frame, Date.now());
 }
 
 // A frame's child frames, split by origin: one of the frame's own origin is a
@@ -1483,7 +1491,15 @@ function requestLog(page) {
   let log = requestLogs.get(page);
   if (log) return log;
   // `last`: per frame, when one of its requests last started or ended.
-  log = { seq: 0, last: new WeakMap(), open: new Map() };
+  // `loaded`: per frame, when its current document began; `console`: the
+  // page's console errors and warnings (any frame — a console message names
+  // no frame), for a press's trace.
+  log = { seq: 0, last: new WeakMap(), open: new Map(), loaded: new WeakMap(), console: [] };
+  page.on("framenavigated", (frame) => log.loaded.set(frame, Date.now()));
+  page.on("console", (message) => {
+    if (message.type() !== "error" && message.type() !== "warning") return;
+    log.console.push({ type: message.type(), text: message.text(), at: Date.now() });
+  });
   page.on("request", (request) => {
     if (!NAVIGATION_TYPES.has(request.resourceType())) return;
     let frame;
@@ -1516,6 +1532,28 @@ async function settle(frame, log, mark) {
   }
 }
 
+// What one press saw when the surface did not answer, kept so a failed run
+// can be told apart afterwards: an environment that was not ready from a
+// control that is not wired (tubrief-v2 #124). The screenshot goes only into
+// the failure record; the trace names it by id.
+const screenshots = new Map();
+async function traceOf(frame, log, clickedAt) {
+  const loaded = log.loaded.get(frame) ?? 0;
+  const id = `shot-${screenshots.size + 1}`;
+  try {
+    screenshots.set(id, (await frame.page().screenshot({ type: "jpeg", quality: 50 })).toString("base64"));
+  } catch {
+    // A page closing under the shot leaves the trace without one.
+  }
+  return {
+    sinceReadyMs: readyAt.has(frame) ? clickedAt - readyAt.get(frame) : null,
+    readAfterMs: Date.now() - clickedAt,
+    openRequests: [...log.open].filter(([, entry]) => entry.frame === frame).map(([request]) => request.url()),
+    console: log.console.filter((m) => m.at >= loaded).map(({ type, text }) => `${type}: ${text}`),
+    screenshot: screenshots.has(id) ? id : null,
+  };
+}
+
 // true when the surface responded, otherwise the reason it is dead.
 async function operate(frame, handle, target) {
   const log = requestLog(frame.page());
@@ -1527,6 +1565,7 @@ async function operate(frame, handle, target) {
   const startUrl = frame.url();
   await frame.evaluate(`(${ARM})()`);
   const mark = log.seq;
+  const clickedAt = Date.now();
   try {
     if (target.text) await handle.type("a", { timeout: 2000 });
     else await handle.click({ timeout: 2000 });
@@ -1534,7 +1573,7 @@ async function operate(frame, handle, target) {
     // Playwright puts the cause (covered, off-screen, unstable) in its call log.
     const lines = String(error.message).split("\n");
     const cause = lines.findLast((line) => /intercepts pointer|outside of the viewport|not visible|not stable|detached/.test(line));
-    return { verdict: `cannot act: ${lines[0]}${cause ? ` — ${cause.trim()}` : ""}`, kind: null };
+    return { verdict: `cannot act: ${lines[0]}${cause ? ` — ${cause.trim()}` : ""}`, kind: null, trace: await traceOf(frame, log, clickedAt) };
   }
   // A typed character changes `value` with or without a handler, so text
   // inputs are judged only by what the surface does in response.
@@ -1542,7 +1581,8 @@ async function operate(frame, handle, target) {
     await frame.waitForTimeout(target.text ? 1500 : 600);
     await settle(frame, log, mark);
     const state = await frame.evaluate(`(${OPERATION_STATE})()`);
-    return { verdict: state.changed ? true : NO_CHANGE, kind: state.kind };
+    if (state.changed) return { verdict: true, kind: state.kind };
+    return { verdict: NO_CHANGE, kind: state.kind, trace: await traceOf(frame, log, clickedAt) };
   } catch {
     // The execution context or the frame went away; its URL tells which page it left for.
     // A document swapped in before the read lands here too: OPERATION_STATE
@@ -1824,6 +1864,9 @@ async function main() {
     for (const [index, url] of urls.entries()) {
       const label = labels[index] ?? url;
       const page = await browser.newPage({ viewport: { width: viewport, height } });
+      // Listening from the first load, so a press's trace holds what the
+      // document logged while it hydrated.
+      requestLog(page);
       // A Set: the frame reloads after every live control and repeats its errors.
       const pageErrors = new Set();
       page.on("pageerror", (error) => pageErrors.add(String(error.message).split("\n")[0]));
@@ -1984,7 +2027,12 @@ async function main() {
   await writeFile(outFile, JSON.stringify(out, null, 2));
   console.log(`wrote ${outFile} at ${origin.commit}${origin.dirty ? " (dirty)" : ""}`);
   if (failed.length) {
+    // A failed run is kept beside --out under its own name, so the re-run
+    // that writes --out again cannot erase what failed (tubrief-v2 #124).
+    const kept = outFile.replace(/(\.json)?$/, `.failed-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
+    await writeFile(kept, JSON.stringify({ ...out, _failed: failed, _screenshots: Object.fromEntries(screenshots) }, null, 2));
     console.error(`measurement failed:\n  ${failed.join("\n  ")}`);
+    console.error(`kept this failed run at ${kept}`);
     process.exitCode = 1;
   }
 }
