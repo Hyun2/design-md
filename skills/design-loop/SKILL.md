@@ -114,6 +114,7 @@ owner에게 확인받는다. 근거를 못 찾은 항목은 빈칸으로 두고 
    `_provenance.commit`을 제출에 명시하고, `operability.inert`(비동작 컨트롤과 사유) ·
    `correspondence.new` · `correspondence.dropped`(새로 넣은 · 뺀 컨트롤과 사유) ·
    `correspondence.opaque`(운영 화면의 embed · 브라우저 미디어 컨트롤 안에서 유지하고 뺀 조작 — owner가 영역마다 승인한다) ·
+   `correspondence.unchecked`(운영 화면에 대응할 것이 없어 검사되지 않은 선언 — owner가 미검사로 승인한다) ·
    `relational.exempted` · `sweep.exempted`(관계 기준 8~12 · 14~16의 예외와 사유 — owner가 한 줄씩 승인하거나 반려한다)와
    조작 결과 대응표를 붙인다. 제출 측정은 폭 훑기를 포함한다 — 출력의 `sweep`이 null이 아니다.
    [`REFERENCE.md`](REFERENCE.md) 「Operability check」 · 「Correspondence

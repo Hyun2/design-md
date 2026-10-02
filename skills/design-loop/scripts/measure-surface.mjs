@@ -63,9 +63,11 @@
  * `<i hidden data-comp-opaque="<region>">…</i>`, the region being the embed
  * URL's host (its protocol when it has none) or `video` / `audio`. Controls
  * and opaque regions are judged across every baseline state; the
- * `--shipped-world` tokens are read from the first state only. Without
- * `--baseline` the output says `baseline: null`, which is "not checked",
- * never "no mismatch".
+ * `--shipped-world` tokens are read from the first state only. A dropped or
+ * opaque declaration with nothing in any baseline state to answer for is
+ * listed as `unchecked`, without failing: no command read it, and the owner
+ * approves it knowing that. Without `--baseline` the output says
+ * `baseline: null`, which is "not checked", never "no mismatch".
  *
  * The same run is also the fit check of 「Comp fidelity conditions」 10, read
  * before any control is touched: the surface — each frame of a shell, or the
@@ -1591,7 +1593,7 @@ function correspond(comp, base) {
     ? others.some((o) => o.list && o.kind === unit.kind && o.container === unit.container)
     : unit.paired;
   const show = (c) => `${c.kind}/${c.container} ${c.list ? `list of ${c.list}` : JSON.stringify(c.labels[0] ?? "")}`;
-  const result = { paired: 0, new: [], dropped: [], unpaired: [], missing: [], opaque: [], undeclaredOpaque: [] };
+  const result = { paired: 0, new: [], dropped: [], unpaired: [], missing: [], opaque: [], undeclaredOpaque: [], unchecked: [] };
   // A card is often two links (thumbnail and title) to one item.
   const once = new Set();
   const first = (side, c) => !once.has(`${side}${show(c)}`) && once.add(`${side}${show(c)}`);
@@ -1613,6 +1615,14 @@ function correspond(comp, base) {
     const declared = comp.opaque.find((d) => d.region === region);
     if (declared?.reason) result.opaque.push({ region, reason: declared.reason });
     else result.undeclaredOpaque.push({ region, reason: declared ? "data-comp-opaque without a reason" : "no data-comp-opaque declaration" });
+  }
+  // A declaration the baseline has no counterpart for was read by no command;
+  // dropping it silently let an owner approve it as checked (tubrief-v2 #120).
+  for (const d of comp.dropped) {
+    if (!theirs.some((b) => b.labels.includes(d.label))) result.unchecked.push({ declaration: "data-comp-dropped", target: d.label, reason: d.reason });
+  }
+  for (const d of comp.opaque) {
+    if (!(base.opaque ?? []).includes(d.region)) result.unchecked.push({ declaration: "data-comp-opaque", target: d.region, reason: d.reason });
   }
   return result;
 }
@@ -1877,6 +1887,10 @@ async function main() {
           for (const m of result.correspondence.missing) failed.push(`${key}: missing control ${m.control} (${m.reason})`);
           for (const o of result.correspondence.undeclaredOpaque) {
             failed.push(`${key}: operating region ${o.region} holds controls this check cannot read (${o.reason}) — declare what the comp keeps or drops of them`);
+          }
+          for (const u of result.correspondence.unchecked) {
+            if (!u.reason) failed.push(`${key}: ${u.declaration}="${u.target}" without a reason`);
+            console.log(`${key}: unchecked ${u.declaration}="${u.target}" — no baseline state shows it; the owner approves it as unchecked`);
           }
           if (shippedWorld) {
             // Tokens are a property of the world, not of the session: the first state.
