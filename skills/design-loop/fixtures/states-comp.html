@@ -1,8 +1,9 @@
 <!doctype html>
 <!--
   A comp of states-operating.html (tubrief-v2 #114). It draws the signed-out
-  header and declares the signed-in "Account" dropped; the playlist control is
-  undeclared and absent, as in the G2 Reader comp. Run: see states-operating.html.
+  header, declares the signed-in "Account" dropped, and keeps the playlist
+  control the signed-in state shows. The G2 Reader comp lacked it and passed;
+  that state is this file at its red commit. Run: see states-operating.html.
 -->
 <html lang="en">
   <head>
@@ -18,6 +19,7 @@
     <main data-comp-world>
       <button type="button" data-comp-control="play" data-comp-accent="1">Play</button>
       <button type="button" data-comp-control="sign-in" data-comp-accent="1">Sign in</button>
+      <button type="button" data-comp-control="playlist" data-comp-accent="1">Playlist 1/2</button>
       <i hidden data-comp-dropped="Account">the comp draws the signed-out header</i>
     </main>
     <script>
