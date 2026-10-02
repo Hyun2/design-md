@@ -183,8 +183,9 @@ world는 고정하고 layout만 세 가지로 만든다. world와 composition의
    element다([`REFERENCE.md`](REFERENCE.md) 체크리스트 13)
 4. 각 안에 **`DESIGN.md` 문장 대조표**를 붙인다 — `DESIGN.md`에서 이 surface의 요소에 색 · 활자 ·
    형태를 정하는 문장마다, 그 안의 렌더가 그 요소에 실제로 쓰는 토큰을 나란히 적는다. 다른 줄이
-   있으면 그 안을 문장대로 고치거나, 문장을 바꾸는 amendment(STEP 3)로 G2에 함께 올린다 — 표 없이
-   제출하면 다른 줄은 조용한 위반이 된다. 2026-09 TuBrief G2 시안(tubrief-v2 #123)은 활성 스크립트
+   있으면 그 안을 문장대로 고치거나, 문장을 바꿔야 한다면 위 서두대로 STEP 3의 amendment로 G1에
+   돌려보내 승인받은 뒤 다시 제출한다 — 표 없이 제출하면 다른 줄은 조용한 위반이 된다. 2026-09
+   TuBrief G2 시안(tubrief-v2 #123)은 활성 스크립트
    행을 signal로 칠했는데 `DESIGN.md`는 그 바탕을 signal wash로 적고 있었고, G2와 구현을 지나 5일
    뒤 G3에서 amendment 문안을 쓰다가 드러났다
 

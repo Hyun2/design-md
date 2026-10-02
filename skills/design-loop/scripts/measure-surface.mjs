@@ -1341,7 +1341,7 @@ async function checkOperability(page, iframe, { collect = false, skip = () => fa
       // left without leaving the target: the current item of a nav.
       return { via, verdict: "exempt", reason: "sibling navigates away" };
     }
-    if (still) return { via, verdict: `selected, and pressing ${via} did not take the selection (${left.verdict === true ? "it responded" : left.verdict})` };
+    if (still) return { via, verdict: `selected, and pressing ${via} did not take the selection (${left.verdict === true ? "it responded" : left.verdict})`, trace: left.trace };
     const operated = await operate(frame, handle, target);
     return {
       via,
@@ -1365,7 +1365,8 @@ async function checkOperability(page, iframe, { collect = false, skip = () => fa
       ...(again.reason ? { reason: again.reason } : {}) };
     // A dead or exempt verdict leaves the sibling's state behind.
     if (again.verdict !== true) await reload();
-    return { verdict: again.verdict, kind: again.kind ?? null, replaced: again.replaced ?? false, outcome, reselected, trace: again.trace ?? null };
+    // A reselect that pressed nothing keeps the first press's trace.
+    return { verdict: again.verdict, kind: again.kind ?? null, replaced: again.replaced ?? false, outcome, reselected, trace: again.trace ?? operated.trace };
   };
   const describe = (judged) => judged.outcome === "dead" ? `dead (${judged.verdict})`
     : judged.replaced ? "live (document replaced in place)" : judged.outcome;
@@ -1532,26 +1533,31 @@ async function settle(frame, log, mark) {
   }
 }
 
-// What one press saw when the surface did not answer, kept so a failed run
-// can be told apart afterwards: an environment that was not ready from a
-// control that is not wired (tubrief-v2 #124). The screenshot goes only into
-// the failure record; the trace names it by id.
+// What one press saw, kept so a failed run can be told apart afterwards: an
+// environment that was not ready from a control that is not wired
+// (tubrief-v2 #124). Taken at the read, before anything else waits; a press
+// the surface did not answer adds a screenshot, which goes only into the
+// failure record and is named here by id.
 const screenshots = new Map();
-async function traceOf(frame, log, clickedAt) {
+function traceOf(frame, log, clickedAt) {
   const loaded = log.loaded.get(frame) ?? 0;
-  const id = `shot-${screenshots.size + 1}`;
-  try {
-    screenshots.set(id, (await frame.page().screenshot({ type: "jpeg", quality: 50 })).toString("base64"));
-  } catch {
-    // A page closing under the shot leaves the trace without one.
-  }
   return {
     sinceReadyMs: readyAt.has(frame) ? clickedAt - readyAt.get(frame) : null,
     readAfterMs: Date.now() - clickedAt,
     openRequests: [...log.open].filter(([, entry]) => entry.frame === frame).map(([request]) => request.url()),
     console: log.console.filter((m) => m.at >= loaded).map(({ type, text }) => `${type}: ${text}`),
-    screenshot: screenshots.has(id) ? id : null,
+    screenshot: null,
   };
+}
+async function shoot(frame, trace) {
+  const id = `shot-${screenshots.size + 1}`;
+  try {
+    screenshots.set(id, (await frame.page().screenshot({ type: "jpeg", quality: 50 })).toString("base64"));
+    trace.screenshot = id;
+  } catch {
+    // A page closing under the shot leaves the trace without one.
+  }
+  return trace;
 }
 
 // true when the surface responded, otherwise the reason it is dead.
@@ -1573,7 +1579,7 @@ async function operate(frame, handle, target) {
     // Playwright puts the cause (covered, off-screen, unstable) in its call log.
     const lines = String(error.message).split("\n");
     const cause = lines.findLast((line) => /intercepts pointer|outside of the viewport|not visible|not stable|detached/.test(line));
-    return { verdict: `cannot act: ${lines[0]}${cause ? ` — ${cause.trim()}` : ""}`, kind: null, trace: await traceOf(frame, log, clickedAt) };
+    return { verdict: `cannot act: ${lines[0]}${cause ? ` — ${cause.trim()}` : ""}`, kind: null, trace: await shoot(frame, traceOf(frame, log, clickedAt)) };
   }
   // A typed character changes `value` with or without a handler, so text
   // inputs are judged only by what the surface does in response.
@@ -1581,9 +1587,11 @@ async function operate(frame, handle, target) {
     await frame.waitForTimeout(target.text ? 1500 : 600);
     await settle(frame, log, mark);
     const state = await frame.evaluate(`(${OPERATION_STATE})()`);
-    if (state.changed) return { verdict: true, kind: state.kind };
-    return { verdict: NO_CHANGE, kind: state.kind, trace: await traceOf(frame, log, clickedAt) };
+    const trace = traceOf(frame, log, clickedAt);
+    if (state.changed) return { verdict: true, kind: state.kind, trace };
+    return { verdict: NO_CHANGE, kind: state.kind, trace: await shoot(frame, trace) };
   } catch {
+    const trace = traceOf(frame, log, clickedAt);
     // The execution context or the frame went away; its URL tells which page it left for.
     // A document swapped in before the read lands here too: OPERATION_STATE
     // reads `__opUrl`, which only ARM's document holds. Swapped at the same
@@ -1605,7 +1613,7 @@ async function operate(frame, handle, target) {
     } catch {
       kind = "leave";
     }
-    return { verdict: true, kind, replaced };
+    return { verdict: true, kind, replaced, trace };
   }
 }
 
@@ -2030,7 +2038,10 @@ async function main() {
     // A failed run is kept beside --out under its own name, so the re-run
     // that writes --out again cannot erase what failed (tubrief-v2 #124).
     const kept = outFile.replace(/(\.json)?$/, `.failed-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
-    await writeFile(kept, JSON.stringify({ ...out, _failed: failed, _screenshots: Object.fromEntries(screenshots) }, null, 2));
+    // Only the shots a dead or unstable judgement names.
+    const named = new Set(JSON.stringify(out).match(/"shot-\d+"/g)?.map((id) => JSON.parse(id)));
+    const shots = Object.fromEntries([...screenshots].filter(([id]) => named.has(id)));
+    await writeFile(kept, JSON.stringify({ ...out, _failed: failed, _screenshots: shots }, null, 2));
     console.error(`measurement failed:\n  ${failed.join("\n  ")}`);
     console.error(`kept this failed run at ${kept}`);
     process.exitCode = 1;
