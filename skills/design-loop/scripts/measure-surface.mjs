@@ -552,80 +552,74 @@ const MEASURE = (rootSelector) => `async () => {
   const wordChar = /[\\p{L}\\p{N}]/u;
   const blockOf = (node) => {
     let el = node.nodeType === 1 ? node : node.parentElement;
-    while (el && el.parentElement && ['inline', 'contents'].includes(getComputedStyle(el).display)) el = el.parentElement;
+    while (el && el !== root && el.parentElement && ['inline', 'contents'].includes(getComputedStyle(el).display)) el = el.parentElement;
     return el;
   };
-  const pxOf = (textNode) => parseFloat(getComputedStyle(textNode.parentElement).fontSize);
   // Hidden descendants neither draw a letter nor separate two: a hidden space
   // would mask a split, and a visibility-hidden letter still has a box.
-  const shown = (el) => document.createTreeWalker(el, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+  const walk = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
     acceptNode: (n) => {
       if (n.nodeType !== 1) return NodeFilter.FILTER_ACCEPT;
       const st = getComputedStyle(n);
       return st.display === 'none' || st.visibility !== 'visible' ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
     },
   });
-  const inHeading = (node) => {
-    const h = node.parentElement && node.parentElement.closest(HEADING);
-    return Boolean(h && root.contains(h));
-  };
-  const largeBlocks = new Set();
-  const scan = shown(root);
-  for (let n = scan.nextNode(); n; n = scan.nextNode()) {
-    if (n.nodeType !== 3 || !n.nodeValue.trim() || inHeading(n) || pxOf(n) <= BODY_PX) continue;
-    largeBlocks.add(blockOf(n));
-  }
-  const candidates = [
-    ...[...root.querySelectorAll(HEADING)].map((el) => ({ el, heading: true })),
-    ...[...largeBlocks].map((el) => ({ el, heading: false })),
-  ];
-  const wordSplits = [];
-  for (const { el, heading } of candidates) {
-    if (!visible(el)) continue;
-    // A heading splits at half its own size; a large block at half its largest letter.
-    let size = heading ? parseFloat(getComputedStyle(el).fontSize) : 0;
-    const splits = [];
-    let prev = null;
-    let gap = false;
-    const walk = shown(el);
-    for (let n = walk.nextNode(); n; n = walk.nextNode()) {
-      if (n.nodeType === 1) {
-        if (n.tagName === 'BR') gap = true;
-        continue;
-      }
-      const block = blockOf(n);
-      // A large block answers for its own large letters only: body-size text
-      // inside it, and blocks nested in it, are judged on their own or not at all.
-      if (!heading && (block !== el || pxOf(n) <= BODY_PX)) { prev = null; continue; }
-      if (!heading) size = Math.max(size, pxOf(n));
-      const s = n.nodeValue;
-      for (let i = 0; i < s.length;) {
-        const ch = String.fromCodePoint(s.codePointAt(i));
-        const start = i;
-        i += ch.length;
-        if (/\\s/u.test(ch)) { gap = true; continue; }
-        const range = document.createRange();
-        range.setStart(n, start);
-        range.setEnd(n, i);
-        const rect = [...range.getClientRects()].find((r) => r.width > 0 && r.height > 0);
-        range.detach();
-        if (!rect) continue;
-        if (prev && !gap && prev.block === block && rect.top - prev.top > size / 2
-          && wordChar.test(prev.ch) && wordChar.test(ch) && (hangulChar.test(prev.ch) || hangulChar.test(ch))) {
-          splits.push(prev.ch + '⏎' + ch);
-        }
-        prev = { ch, top: rect.top, block };
-        gap = false;
-      }
+  // A split belongs to the heading its letters are in, else to their block.
+  // An exemption is read from the letters' own element, so a marked span
+  // inside an unmarked block is exempt alone.
+  const units = new Map();
+  let prev = null;
+  let gap = false;
+  for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+    if (n.nodeType === 1) {
+      if (n.tagName === 'BR') gap = true;
+      continue;
     }
-    if (splits.length === 0) continue;
-    const text = (el.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 32);
-    const what = heading ? 'heading' : size + 'px text';
-    wordSplits.push({ tag: el.tagName.toLowerCase(), px: size, text, splits });
-    // The split letters stay in \`wordSplits\`: they move with the width, and
-    // the sweep folds one element's widths into one line by its digits alone.
-    if (!exempt(el, 16, what + ' ' + text)) {
-      relationalDefects.push('criterion 16: ' + what + ' "' + text + '" breaks a Korean word across lines ' + splits.length + ' time(s) (relational.wordSplits)');
+    const parent = n.parentElement;
+    const heading = parent.closest(HEADING);
+    const ownHeading = heading && root.contains(heading) ? heading : null;
+    const px = parseFloat(getComputedStyle(parent).fontSize);
+    if ((!ownHeading && px <= BODY_PX) || !visible(ownHeading || parent)) { prev = null; continue; }
+    const block = blockOf(n);
+    const owner = ownHeading || block;
+    const exemptAt = exemptReason(parent, 16) ? parent : null;
+    const s = n.nodeValue;
+    for (let i = 0; i < s.length;) {
+      const ch = String.fromCodePoint(s.codePointAt(i));
+      const start = i;
+      i += ch.length;
+      if (/\\s/u.test(ch)) { gap = true; continue; }
+      const range = document.createRange();
+      range.setStart(n, start);
+      range.setEnd(n, i);
+      const rect = [...range.getClientRects()].find((r) => r.width > 0 && r.height > 0);
+      range.detach();
+      if (!rect) continue;
+      // A new line starts more than half a letter lower — this letter's size.
+      if (prev && !gap && prev.block === block && rect.top - prev.top > px / 2
+        && wordChar.test(prev.ch) && wordChar.test(ch) && (hangulChar.test(prev.ch) || hangulChar.test(ch))) {
+        let byExempt = units.get(owner);
+        if (!byExempt) units.set(owner, (byExempt = new Map()));
+        let unit = byExempt.get(exemptAt);
+        if (!unit) byExempt.set(exemptAt, (unit = { heading: Boolean(ownHeading), px: 0, splits: [] }));
+        unit.px = Math.max(unit.px, px);
+        unit.splits.push(prev.ch + '⏎' + ch);
+      }
+      prev = { ch, top: rect.top, block };
+      gap = false;
+    }
+  }
+  const wordSplits = [];
+  for (const [owner, byExempt] of units) {
+    for (const [exemptAt, { heading, px, splits }] of byExempt) {
+      const text = (owner.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 32);
+      const what = heading ? 'heading' : px + 'px text';
+      wordSplits.push({ tag: owner.tagName.toLowerCase(), px, text, splits });
+      // The split letters stay in \`wordSplits\`: they move with the width, and
+      // the sweep folds one element's widths into one line by its digits alone.
+      if (!exempt(exemptAt || owner, 16, what + ' ' + text)) {
+        relationalDefects.push('criterion 16: ' + what + ' "' + text + '" breaks a Korean word across lines ' + splits.length + ' time(s) (relational.wordSplits)');
+      }
     }
   }
 
