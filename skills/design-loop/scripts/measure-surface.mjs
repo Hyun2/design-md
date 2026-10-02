@@ -91,9 +91,14 @@
  *             「Comp fidelity conditions」 10)
  *   --root      selector the measurement is scoped to, default body
  *   --out       output file, default measure.json
- *   --baseline  comma-separated operating-screen URLs, one per --urls entry,
+ *   --baseline  comma-separated operating screens, one per --urls entry,
  *             each rendering the frame's state (locale, record, content
- *             language, theme); a frame is compared at its own size
+ *             language, theme); a frame is compared at its own size. An
+ *             entry may hold several states joined by `|`, each a URL or
+ *             `signed-in:<URL>`; the comp answers for every control any state
+ *             shows
+ *   --storage-state  Playwright storage state file the `signed-in:` states
+ *             are opened with
  *   --shipped-world  the world already ships in the operating screen (after
  *             the substrate pass): every token the baseline defines must
  *             resolve to the same value at --root, or the run fails. Needs
@@ -148,7 +153,15 @@ const height = Number(arg("height", "900"));
 const devices = arg("devices", "390x844,768x1024,1440x900,1920x1080").split(",").filter(Boolean);
 const rootSelector = arg("root", "");
 const outFile = arg("out", "measure.json");
-const baselines = arg("baseline", "").split(",").filter(Boolean);
+// Each --urls entry's operating screen, as one or more states joined by `|`.
+// A `signed-in:` state is opened with --storage-state: controls that need a
+// session or data appear only there (tubrief-v2 #114).
+const SIGNED_IN = "signed-in:";
+const baselines = arg("baseline", "").split(",").filter(Boolean).map((entry) =>
+  entry.split("|").filter(Boolean).map((state) => state.startsWith(SIGNED_IN)
+    ? { url: state.slice(SIGNED_IN.length), session: "signed-in" }
+    : { url: state, session: "signed-out" }));
+const storageState = arg("storage-state", "");
 const shippedWorld = process.argv.includes("--shipped-world");
 // The width sweep of 「Comp fidelity conditions」 10: layout criteria at every
 // step between the smallest and the largest device, because a column is
@@ -182,7 +195,11 @@ if (urls.length === 0) {
   process.exit(1);
 }
 if (baselines.length > 0 && baselines.length !== urls.length) {
-  console.error("measure-surface: --baseline needs one URL per --urls entry");
+  console.error("measure-surface: --baseline needs one entry per --urls entry");
+  process.exit(1);
+}
+if (baselines.flat().some((state) => state.session === "signed-in") && !(storageState && existsSync(storageState))) {
+  console.error("measure-surface: a signed-in: baseline state needs --storage-state <Playwright storage state file>");
   process.exit(1);
 }
 
@@ -1574,19 +1591,22 @@ function correspond(comp, base) {
 // its inventory is wanted: links leave the page and list members repeat one
 // another, so neither is operated.
 const baselineCache = new Map();
-async function baselinePage(browser, url, width, heightPx) {
-  const key = `${url}@${width}x${heightPx}`;
+async function baselinePage(browser, state, width, heightPx) {
+  const key = `${state.session} ${state.url}@${width}x${heightPx}`;
   if (!baselineCache.has(key)) {
-    const page = await browser.newPage({ viewport: { width, height: heightPx } });
-    await page.goto(url, { waitUntil: "networkidle" });
+    const viewportSize = { width, height: heightPx };
+    const page = state.session === "signed-in"
+      ? await (await browser.newContext({ viewport: viewportSize, storageState })).newPage()
+      : await browser.newPage({ viewport: viewportSize });
+    await page.goto(state.url, { waitUntil: "networkidle" });
     await waitReady(page.mainFrame());
     baselineCache.set(key, { page, inventory: null, tokens: null });
   }
   return baselineCache.get(key);
 }
 
-async function baselineInventory(browser, url, width, heightPx) {
-  const entry = await baselinePage(browser, url, width, heightPx);
+async function baselineInventory(browser, state, width, heightPx) {
+  const entry = await baselinePage(browser, state, width, heightPx);
   if (!entry.inventory) {
     const rest = await entry.page.evaluate(`(${INVENTORY})()`);
     const counts = new Map();
@@ -1600,8 +1620,16 @@ async function baselineInventory(browser, url, width, heightPx) {
   return entry.inventory;
 }
 
-async function baselineTokens(browser, url, width, heightPx) {
-  const entry = await baselinePage(browser, url, width, heightPx);
+// The operating screen's controls across its states: a control any state
+// shows is one the comp pairs or declares.
+async function baselineStatesInventory(browser, states, width, heightPx) {
+  const controls = [];
+  for (const state of states) controls.push(...(await baselineInventory(browser, state, width, heightPx)).controls);
+  return { controls, dropped: [] };
+}
+
+async function baselineTokens(browser, state, width, heightPx) {
+  const entry = await baselinePage(browser, state, width, heightPx);
   if (!entry.tokens) entry.tokens = await entry.page.evaluate(`(${TOKEN_VALUES("", true)})()`);
   return entry.tokens;
 }
@@ -1800,12 +1828,13 @@ async function main() {
         result.tokens = null;
         if (baselines[index]) {
           const [w, h] = await frame.evaluate(() => [innerWidth, innerHeight]);
-          const base = await baselineInventory(browser, baselines[index], w, h);
+          const base = await baselineStatesInventory(browser, baselines[index], w, h);
           result.correspondence = { baseline: baselines[index], ...correspond(inventory, base) };
           for (const u of result.correspondence.unpaired) failed.push(`${key}: unpaired control ${u.control} (${u.reason})`);
           for (const m of result.correspondence.missing) failed.push(`${key}: missing control ${m.control} (${m.reason})`);
           if (shippedWorld) {
-            const operatingTokens = await baselineTokens(browser, baselines[index], w, h);
+            // Tokens are a property of the world, not of the session: the first state.
+            const operatingTokens = await baselineTokens(browser, baselines[index][0], w, h);
             const comp = new Map(compTokens.map(({ name, value }) => [name, value]));
             const operating = new Map(operatingTokens.map(({ name, value }) => [name, value]));
             const names = new Set([...comp.keys(), ...operating.keys()]);
@@ -1818,7 +1847,7 @@ async function main() {
               const value = comp.get(name) ?? "";
               if (value !== baseline) drift.push({ name, comp: value, baseline });
             }
-            result.tokens = { baseline: baselines[index], compared, drift };
+            result.tokens = { baseline: baselines[index][0].url, compared, drift };
             if (drift.length) {
               const cut = (value) => value.replace(/\s+/g, " ").slice(0, 80);
               const samples = drift.slice(0, 3).map(({ name, comp: value, baseline }) =>

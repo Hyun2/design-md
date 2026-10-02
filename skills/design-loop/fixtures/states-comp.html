@@ -1,0 +1,28 @@
+<!doctype html>
+<!--
+  A comp of states-operating.html (tubrief-v2 #114). It draws the signed-out
+  header and declares the signed-in "Account" dropped; the playlist control is
+  undeclared and absent, as in the G2 Reader comp. Run: see states-operating.html.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>states comp</title>
+    <style>
+      body { margin: 0; background: #111; color: #eee; font: 16px/1.5 sans-serif; }
+      main { padding: 24px; display: flex; gap: 8px; }
+      button { height: 36px; padding: 0 16px; border: 0; background: #0aa; color: #000; font: inherit; }
+    </style>
+  </head>
+  <body>
+    <main data-comp-world>
+      <button type="button" data-comp-control="play" data-comp-accent="1">Play</button>
+      <button type="button" data-comp-control="sign-in" data-comp-accent="1">Sign in</button>
+      <i hidden data-comp-dropped="Account">the comp draws the signed-out header</i>
+    </main>
+    <script>
+      for (const button of document.querySelectorAll("button")) button.addEventListener("click", () => button.toggleAttribute("data-on"));
+      document.documentElement.setAttribute("data-comp-ready", "");
+    </script>
+  </body>
+</html>

@@ -1,0 +1,45 @@
+<!doctype html>
+<!--
+  An operating screen whose controls depend on the session and the data
+  (tubrief-v2 #114). Signed out it shows "Sign in"; signed in (cookie
+  `session=1`, states-storage.json) it shows "Account", and with a playlist in
+  the URL also "Playlist 1/2" — as TuBrief's playlist sheet needs a grant and a
+  playlist context. Opened only signed out, a comp without the playlist
+  control passed.
+
+  node <skill>/fixtures/serve.mjs 4796 -- node <skill>/scripts/measure-surface.mjs \
+    --urls http://127.0.0.1:4796/states-comp.html \
+    --baseline "http://127.0.0.1:4796/states-operating.html|signed-in:http://127.0.0.1:4796/states-operating.html?playlist=p1" \
+    --storage-state <skill>/fixtures/states-storage.json \
+    --viewport 1440 --height 900 --sweep off --out /tmp/states.json
+  (from a project root that resolves Playwright)
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>states operating</title>
+    <style>
+      body { margin: 0; background: #111; color: #eee; font: 16px/1.5 sans-serif; }
+      main { padding: 24px; display: flex; gap: 8px; }
+      button { height: 36px; padding: 0 16px; border: 0; background: #0aa; color: #000; font: inherit; }
+    </style>
+  </head>
+  <body>
+    <main data-comp-world></main>
+    <script>
+      const signedIn = document.cookie.split("; ").includes("session=1");
+      const playlist = new URL(location.href).searchParams.get("playlist");
+      const labels = ["Play", signedIn ? "Account" : "Sign in", ...(signedIn && playlist ? ["Playlist 1/2"] : [])];
+      for (const label of labels) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = label;
+        button.dataset.compControl = label;
+        button.dataset.compAccent = "1";
+        button.addEventListener("click", () => button.toggleAttribute("data-on"));
+        document.querySelector("main").append(button);
+      }
+      document.documentElement.setAttribute("data-comp-ready", "");
+    </script>
+  </body>
+</html>
