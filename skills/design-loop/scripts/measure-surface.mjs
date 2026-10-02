@@ -60,7 +60,10 @@
  * dropped one. A region of the operating screen no inventory can read into —
  * a frame of another origin, media with the browser's own controls — fails
  * the run until the comp declares what it keeps and drops there,
- * `<i hidden data-comp-opaque="<host | video | audio>">…</i>`. Without
+ * `<i hidden data-comp-opaque="<region>">…</i>`, the region being the embed
+ * URL's host (its protocol when it has none) or `video` / `audio`. Controls
+ * and opaque regions are judged across every baseline state; the
+ * `--shipped-world` tokens are read from the first state only. Without
  * `--baseline` the output says `baseline: null`, which is "not checked",
  * never "no mismatch".
  *

@@ -144,7 +144,7 @@ commit이 바뀌거나 tree가 dirty가 되어 드러난다.
 | 목록 | 쉴 때 surface에 있는 컨트롤 + 동작 검사가 누른 뒤 새로 보인 컨트롤: 연 **popup 안의** 컨트롤(dialog · listbox · menu · `[popover]`)과, URL이 그대로일 때 탭 · 접힌 영역이 제자리에서 펼친 surface 컨트롤. 둘 다 reload 전에 읽는다. 2026-10 TuBrief #114에서 토글이 펼치는 스크립트 패널 안의 「내려받기」가 운영 목록에 없어, 그것을 뺀 G2 시안이 통과했다 |
 | 짝 | (종류, 자리, 라벨)이 맞으면 짝이다. 종류는 `text`(입력칸)와 `action`(나머지) 둘뿐이다. 자리는 `surface` / `popup`. 라벨은 aria-label · placeholder · title · 글자 중 하나라도 같으면 맞다 |
 | 목록형 | 한 자리에 5개 이상 반복된 **링크**, 또는 누른 뒤 제자리에서 펼쳐진 **반복 행**이고 라벨이 서로 다르면 data(상세로 가는 카드 · 스크립트 행)다. 시안은 corpus에서 뽑고 운영은 DB에서 가져오므로 **목록이 있는지**만 짝짓는다. 쉴 때 보이는 링크가 아닌 반복(주제 칩 · 필터 · 언어 메뉴)은 하나씩 짝짓는다. G1 시안에서는 손으로 쓴 주제 칩 · 필터 셋 · 검색칸이 형제 `span` 12개였고, 라벨이 다양한 반복을 data로 치는 규칙은 어떤 형태든 검색칸을 「12개짜리 목록」에 숨겼다. 펼쳐진 행을 하나씩 짝지으면 2026-10 TuBrief #114에서 스크립트 탭의 재생 버튼 행이 시안 312 · 운영 159건의 불일치로 나왔다 |
-| 안을 볼 수 없는 영역 | 운영 화면에서 보이는 다른 origin의 iframe(embed — 영상 플레이어 · 지도 · 결제 위젯)과 브라우저가 컨트롤을 그리는 `video[controls]` · `audio[controls]`. 그 안의 조작은 목록에 들어오지 않으므로, 시안이 영역마다 무엇을 유지하고 무엇을 뺐는지 선언한다. 영역 이름은 embed의 host(`www.youtube.com`) 또는 `video` · `audio`다 — 2026-10 TuBrief #115에서 G2 구성이 플레이어의 재생 막대 · 전체화면 · 음량 · 자막 메뉴를 없앴는데, 검사도 gate도 owner에게 묻지 않았다 |
+| 안을 볼 수 없는 영역 | 운영 화면에서 보이는 다른 origin의 iframe(embed — 영상 플레이어 · 지도 · 결제 위젯)과 브라우저가 컨트롤을 그리는 `video[controls]` · `audio[controls]`. 그 안의 조작은 목록에 들어오지 않으므로, 시안이 영역마다 무엇을 유지하고 무엇을 뺐는지 선언한다. 영역 이름은 embed URL의 host(`www.youtube.com`), host가 없으면 protocol(`data:` · `about:`), 브라우저 미디어는 `video` · `audio`다 — 2026-10 TuBrief #115에서 G2 구성이 플레이어의 재생 막대 · 전체화면 · 음량 · 자막 메뉴를 없앴는데, 검사도 gate도 owner에게 묻지 않았다 |
 | 선언 | 새 컨트롤 `data-comp-new="<사유>"`(요소 또는 조상). 뺀 운영 컨트롤 `<i hidden data-comp-dropped="<운영 라벨>">사유</i>`. 안을 볼 수 없는 영역 `<i hidden data-comp-opaque="<영역 이름>">유지하고 뺀 조작과 사유</i>`. 출력의 `correspondence.new` · `.dropped` · `.opaque`가 곧 제출용 목록이다 |
 | 실패 | 짝 없고 선언 없는 시안 컨트롤(`unpaired`) · 시안에 없고 선언 없는 운영 컨트롤(`missing`) · 선언 없는 안을 볼 수 없는 영역(`undeclaredOpaque`) · 사유가 빈 선언 → exit 1 |
 | 비교 대상 없음 | `--baseline` 없이 돌면 `correspondence.baseline: null`. **검사하지 않음**이지 불일치 0건이 아니다. 운영 화면이 없는 새 프로젝트는 제출에 그 사실을 적는다 |
@@ -163,7 +163,8 @@ world가 집행층에 들어간 뒤의 시안(STEP 5)은 `--baseline`에 더해 
 스타일시트의 커스텀 프로퍼티를 전부 모아 시안의 `--root`와 운영 화면의 `<body>`에서 해석하고, 운영
 화면에 값이 있는 이름 중 하나라도 값이 다르면 exit 1이다(`tokens.drift`). 운영 화면에서 비어 있는
 이름은 시안 전용이라 비교하지 않는다. 플래그 없이 돌면 `tokens: null` — 검사하지 않음이다. G1의
-후보는 운영과 일부러 다르므로 이 플래그를 주지 않는다.
+후보는 운영과 일부러 다르므로 이 플래그를 주지 않는다. 운영 화면을 여러 상태로 열면 토큰은 **첫 상태**에서만 읽고
+`tokens.baseline`에 그 URL을 싣는다 — 토큰은 세션이 아니라 world의 값이다.
 
 2026-09 G2에서 시안 범위가 substrate 이전의 `--font-sans` 사본을 다시 선언해, 시안의 한글이 운영
 화면과 다른 글꼴로 그려졌다. 「Operability check」의 popup 검사는 surface와 popup이 **서로** 같은지만
@@ -207,7 +208,7 @@ deletion test 3건 실패(legend·state stamp·thumbnail chip). correctness gate
 | **operability check(동작 검사)** | 보이는 컨트롤을 실제로 조작해 반응이 있는지 보는 제출 전 검사. 「Comp fidelity conditions」 7번의 판정 수단이며, 면제는 `data-comp-inert="<사유>"` |
 | **selected control(선택된 컨트롤)** | 다시 눌러도 상태가 바뀌지 않는 것이 정상인 컨트롤: `aria-selected="true"` · `aria-current`(값이 `false`가 아님) · `aria-checked="true"`인 `radio`/`menuitemradio` · 체크된 `input[type=radio]`. `aria-pressed` · checkbox · switch는 누르면 뒤집혀야 하므로 **해당하지 않는다**. operability check는 이것을 형제로 한 번 떠났다가 다시 누른다 |
 | **label source(라벨 출처)** | 운영 화면이 컨트롤의 문구를 가져오는 참조. 라이브러리마다 다르다: react-i18next는 번역 키(`t("videos.search.placeholder")`), FormatJS는 메시지 ID, i18n이 없으면 소스 리터럴의 위치. 「Comp fidelity conditions」 1번의 대상 |
-| **correspondence check(대응 검사)** | 시안의 컨트롤을 운영 화면의 컨트롤과 (종류, 자리, 라벨)로 짝짓는 제출 전 검사. 「Comp fidelity conditions」 1·7번의 판정 수단이며, 선언은 `data-comp-new` · `data-comp-dropped` |
+| **correspondence check(대응 검사)** | 시안의 컨트롤을 운영 화면의 컨트롤과 짝짓고, 안을 볼 수 없는 영역은 선언으로 확인하는 제출 전 검사. 「Comp fidelity conditions」 1·7번의 판정 수단이며, 입력 · 짝짓기 · 선언 규약은 「Correspondence check」를 따른다 |
 | **fit check(맞춤 검사)** | 조작 전에 frame마다 두 가지를 보는 제출 전 검사: 크기(`innerWidth`×`innerHeight`)가 `--devices`의 기기 쌍 중 하나인가, 축소가 반영된 화면상 사각형이 창 안에 전부 들어오는가. 「Comp fidelity conditions」 10번의 판정 수단이다. 창(`--viewport` × `--height`)은 시험 조건이다 — 창에 맞춰 축소하는 셸은 어떤 창에도 들어가므로, 이 검사가 잡는 것은 축소·배치가 틀린 셸이다(2026-09: RTL에서 frame이 창 왼쪽 밖에 그려짐, 1280×720·1440×900 둘 다) |
 | **shipped-world check(출하 world 검사)** | 시안 루트에서 해석된 토큰 값을 운영 화면의 값과 비교하는 제출 전 검사(`--shipped-world`). 「Comp fidelity conditions」 6번의 판정 수단이며, world가 집행층에 들어간 뒤에만 쓴다 |
 
