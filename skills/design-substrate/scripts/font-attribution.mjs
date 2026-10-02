@@ -45,9 +45,11 @@
  *
  * Exit 1 when any installed-face glyph (rendered or corpus) falls outside the
  * policy, when a face is a wasted download, or when a row failed to measure:
- * it could not load, it read no text-bearing element, a node or character
- * returned no face (an unread face is not a web face), a face file or
- * stylesheet could not be read, or a corpus element was not found.
+ * it could not load, its page navigated under the walk on both of two fresh
+ * reads (`notMeasured`; one recovered loss is `restarted`), it read no
+ * text-bearing element, a node or character returned no face (an unread face
+ * is not a web face), a face file or stylesheet could not be read, or a
+ * corpus element was not found.
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
@@ -394,6 +396,35 @@ async function openPage(context, url) {
   return { page, cdp };
 }
 
+/* A Playwright call whose document went away under it. */
+const LOST_CONTEXT = /Execution context was destroyed|detached/i;
+
+/* Opens a row and walks its states. A page that navigates under the walk — a
+ * dev server reloading — destroys the context being read (tubrief-v2 #116);
+ * the row is read again on a fresh page once, and then reported as not
+ * measured. `restarted` names the loss a successful second read recovered. */
+async function readRow(context, url) {
+  let lost = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let opened = null;
+    try {
+      opened = await openPage(context, url);
+      if (opened.blocker) return { blocker: opened.blocker };
+      const { page, cdp } = opened;
+      const nodes = new Map();
+      const tally = { textElements: 0, unread: [] };
+      await walkStates(page, cdp, nodes, tally);
+      const { byFamily, unreadable } = await readRules(page);
+      return { page, nodes, tally, byFamily, unreadable, restarted: lost };
+    } catch (error) {
+      if (!LOST_CONTEXT.test(error.message)) throw error;
+      lost = error.message.split("\n")[0];
+      await opened?.page?.close();
+    }
+  }
+  return { lost };
+}
+
 /* Asks the probe everything a page's characters raise, then names why each
  * fallen glyph fell (`fallen[].fell`, `fallen[].faces`) and returns the
  * wasted downloads. `uses`: every { fontFamily, cp } set on the page;
@@ -557,16 +588,13 @@ async function main() {
         for (const lang of fonts.locales) {
           const key = `${row.id}__${lang}__${viewport.name}`;
           const url = capture.url(row, { base, lang, theme }, setup);
-          const { page, cdp, blocker } = await openPage(context, url);
-          if (blocker) {
-            results[key] = { blocker, url };
-            failed.push(`${key} (not loaded)`);
+          const read = await readRow(context, url);
+          if (read.blocker || read.lost) {
+            results[key] = read.blocker ? { blocker: read.blocker, url } : { notMeasured: read.lost, url };
+            failed.push(`${key} (${read.blocker ? "not loaded" : `not measured: ${read.lost}`})`);
             continue;
           }
-          const nodes = new Map();
-          const tally = { textElements: 0, unread: [] };
-          await walkStates(page, cdp, nodes, tally);
-          const { byFamily, unreadable } = await readRules(page);
+          const { page, nodes, tally, byFamily, unreadable } = read;
 
           let glyphs = 0;
           let installedAllowed = 0;
@@ -615,6 +643,7 @@ async function main() {
             undeclared,
             unread: tally.unread,
             states: [...new Set([...nodes.values()].map((n) => n.state))],
+            ...(read.restarted ? { restarted: read.restarted } : {}),
           };
           const worst = undeclared.sort((a, b) => b.count - a.count)[0];
           console.log(
