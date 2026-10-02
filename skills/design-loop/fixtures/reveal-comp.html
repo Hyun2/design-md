@@ -1,0 +1,35 @@
+<!doctype html>
+<!--
+  A comp of reveal-operating.html (tubrief-v2 #114). It keeps the toggle and
+  the panel, and drops the panel's "Download transcript" without declaring it:
+  the G2 Reader comp did the same and passed. Run: see reveal-operating.html.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>reveal comp</title>
+    <style>
+      body { margin: 0; background: #111; color: #eee; font: 16px/1.5 sans-serif; }
+      main { padding: 24px; display: grid; gap: 16px; justify-items: start; }
+      button { height: 36px; padding: 0 16px; border: 0; background: #0aa; color: #000; font: inherit; }
+      [hidden] { display: none; }
+    </style>
+  </head>
+  <body>
+    <main data-comp-world>
+      <button type="button" aria-expanded="false" aria-controls="panel" data-comp-control="toggle" data-comp-accent="1">Show transcript</button>
+      <section id="panel" hidden>
+        <p>00:00 Hello</p>
+      </section>
+    </main>
+    <script>
+      const toggle = document.querySelector("[aria-expanded]");
+      toggle.addEventListener("click", () => {
+        const open = toggle.getAttribute("aria-expanded") !== "true";
+        toggle.setAttribute("aria-expanded", String(open));
+        document.getElementById("panel").hidden = !open;
+      });
+      document.documentElement.setAttribute("data-comp-ready", "");
+    </script>
+  </body>
+</html>

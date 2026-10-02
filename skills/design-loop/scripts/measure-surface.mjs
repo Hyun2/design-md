@@ -1306,6 +1306,8 @@ async function checkOperability(page, iframe, { collect = false, skip = () => fa
   const describe = (judged) => judged.outcome === "dead" ? `dead (${judged.verdict})`
     : judged.replaced ? "live (document replaced in place)" : judged.outcome;
   const inventory = collect ? await frame.evaluate(`(${INVENTORY})()`) : null;
+  const controlId = (c) => `${c.kind}|${c.container}|${c.path}|${c.labels.join("\u0000")}`;
+  const atRest = new Set(inventory?.controls.map(controlId));
   for (const [index, target] of targets.entries()) {
     if (skip(inventory?.controls[index])) continue;
     if (target.inert !== null) {
@@ -1338,8 +1340,12 @@ async function checkOperability(page, iframe, { collect = false, skip = () => fa
         if (collect || scope !== null) {
           try {
             if (collect) {
+              // What the press brought into view: a popup's controls, and —
+              // when the URL stayed — the surface controls a tab or disclosure
+              // opened in place (tubrief-v2 #114: a transcript panel's download).
+              const stayed = frame.url() === home;
               const after = await frame.evaluate(`(${INVENTORY})()`);
-              inventory.controls.push(...after.controls.filter((c) => c.container === "popup"));
+              inventory.controls.push(...after.controls.filter((c) => c.container === "popup" || (stayed && !atRest.has(controlId(c)))));
             }
             if (scope !== null) {
               for (const miss of await frame.evaluate(`(${POPUP_SCOPE(scope)})()`)) {
