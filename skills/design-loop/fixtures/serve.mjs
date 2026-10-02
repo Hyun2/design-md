@@ -5,8 +5,10 @@
  *   node <skill>/fixtures/serve.mjs <port> -- <command…>
  *
  * Any request with `?delay=<ms>` is answered after that many milliseconds,
- * which stands in for a slow loader. The command inherits stdio and its exit
- * code is this script's; the server stops when it ends.
+ * which stands in for a slow loader. `/hits?key=<k>` answers `{"n": …}`, how
+ * many times `<k>` has been asked for, so a page can behave differently on a
+ * later load. The command inherits stdio and its exit code is this script's;
+ * the server stops when it ends.
  */
 import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
@@ -24,10 +26,17 @@ if (!Number.isInteger(port) || split === -1 || split === process.argv.length - 1
 const [command, ...args] = process.argv.slice(split + 1);
 
 const TYPES = { ".html": "text/html; charset=utf-8", ".json": "application/json" };
+const hits = new Map();
 const server = createServer(async (request, response) => {
   const url = new URL(request.url, `http://127.0.0.1:${port}`);
   const delay = Number(url.searchParams.get("delay") ?? 0);
   if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+  if (url.pathname === "/hits") {
+    const key = url.searchParams.get("key") ?? "";
+    hits.set(key, (hits.get(key) ?? 0) + 1);
+    response.writeHead(200, { "content-type": TYPES[".json"] }).end(JSON.stringify({ n: hits.get(key) }));
+    return;
+  }
   const file = path.join(root, path.normalize(url.pathname));
   if (!file.startsWith(`${root}/`)) {
     response.writeHead(403).end();
