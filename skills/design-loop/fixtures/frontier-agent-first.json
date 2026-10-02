@@ -1,0 +1,35 @@
+{
+  "issues": {
+    "100": {
+      "title": "fixture — glyphs the agent found in its own corpus measurement",
+      "body": "Source: process ticket #96, found in the agent's measurement, not an owner finding",
+      "state": "open",
+      "labels": ["wayfinder:grilling", "source:agent"],
+      "assignees": [],
+      "openBlockers": 0
+    },
+    "117": {
+      "title": "fixture — owner decision the G3 gate waits on",
+      "body": "",
+      "state": "open",
+      "labels": ["wayfinder:grilling", "source:owner"],
+      "assignees": [],
+      "openBlockers": 0
+    },
+    "118": {
+      "title": "fixture — G3 expression pass",
+      "body": "",
+      "state": "open",
+      "labels": ["wayfinder:prototype", "source:owner"],
+      "assignees": [],
+      "openBlockers": 1
+    }
+  },
+  "subIssues": {
+    "16": [100, 117, 118],
+    "25": []
+  },
+  "blockedBy": {
+    "16": []
+  }
+}

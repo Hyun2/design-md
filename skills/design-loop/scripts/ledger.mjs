@@ -6,6 +6,7 @@
  *   node <skill>/scripts/ledger.mjs check <gate-issue> [--file <draft>]
  *   node <skill>/scripts/ledger.mjs sync  <gate-issue> --map <process-map-issue>
  *   node <skill>/scripts/ledger.mjs audit --map <process-map-issue> --product <product-map-issue> [--since <date>] [--process-since <date>] [--tracker <snapshot.json>]
+ *   node <skill>/scripts/ledger.mjs frontier --map <process-map-issue> --product <product-map-issue> [--tracker <snapshot.json>]
  *
  * Why this exists: the feedback loop failed once already, and it failed in the
  * only way a convention can — someone has to remember. Every owner finding at a
@@ -121,7 +122,7 @@
  * a corresponding process-map ticket fails `audit`; `project` rows are expected
  * to stay in the product repo and are never carried.
  *
- * `audit` catches four leaks, because a session that works only the product
+ * `audit` catches these leaks, because a session that works only the product
  * map never looks at the process map and so cannot notice what it failed to
  * send there:
  *
@@ -141,6 +142,20 @@
  *              A commit on a local branch but not yet on origin/main is listed
  *              as UNPUSHED without failing: close precedes push by design
  *              (26h for #44), and failing then would force a deploy
+ *   UNSOURCED  an open product ticket with neither or both of the `source:`
+ *              labels, so `frontier` cannot tell whose it is
+ *
+ * `frontier` names the next ticket. First the open process tickets the
+ * product map is `blocked_by` (process-map order): this product map's own
+ * fixes land before its next ticket. Then the product map's open, unassigned,
+ * unblocked children by source: `source:owner` (an owner finding, or a ticket
+ * of a plan the owner approved), then `source:agent` with `owner-approved`,
+ * each in map order. A `source:agent` ticket without approval is listed for
+ * the owner and never picked. Map order alone is creation order: tubrief-v2
+ * #119's session got #100, which the agent had found in its own measurement,
+ * ahead of the owner decision blocking G3, while the owner's rule to look at
+ * the source first was a sentence in the map's Notes. Process tickets carry no
+ * source; their order was never the defect.
  *
  * A ticket whose resolution genuinely produced nothing for the process still
  * closes through `close`, with one `class: project` row saying why. Silence is
@@ -395,9 +410,10 @@ function validate(rows, problems = []) {
 // `--tracker <file>` replaces the three tracker reads — an issue's text, a
 // map's children, a product map's blockers — with a snapshot, so a defect that
 // lives in tracker state can be committed as a fixture and give `audit` a
-// red/green pair. Shape:
+// red/green pair. `frontier` reads the same three. Shape:
 //   { "issues": { "<n>": { "title", "body", "comments": ["…"], "state",
-//                          "stateReason", "closedAt" } },
+//                          "stateReason", "closedAt", "labels": ["…"],
+//                          "assignees": ["…"], "openBlockers": <n> } },
 //     "subIssues": { "<map>": [<n>, …] }, "blockedBy": { "<product>": [<n>, …] } }
 let snapshotCache;
 function snapshot() {
@@ -437,7 +453,7 @@ function listTickets(map) {
   if (snapshot()) {
     return (snapshot().subIssues?.[String(map)] ?? []).map((n) => {
       const issue = snapshotIssue(n);
-      return { number: n, title: issue.title, state: issue.state, stateReason: issue.stateReason ?? null, closedAt: issue.closedAt ?? null, body: issue.body ?? "" };
+      return { number: n, title: issue.title, state: issue.state, stateReason: issue.stateReason ?? null, closedAt: issue.closedAt ?? null, body: issue.body ?? "", labels: issue.labels ?? [], assignees: issue.assignees ?? [], openBlockers: issue.openBlockers ?? 0 };
     });
   }
   const children = JSON.parse(
@@ -450,6 +466,9 @@ function listTickets(map) {
     stateReason: child.state_reason,
     closedAt: child.closed_at,
     body: child.body ?? "",
+    labels: child.labels.map((label) => label.name),
+    assignees: child.assignees.map((user) => user.login),
+    openBlockers: child.issue_dependencies_summary?.blocked_by ?? 0,
   }));
 }
 
@@ -460,6 +479,23 @@ function blockedBy(product) {
       (issue) => issue.number,
     ),
   );
+}
+
+const SOURCE = { owner: "source:owner", agent: "source:agent" };
+const APPROVED = "owner-approved";
+
+function sourceOf(ticket) {
+  const owner = ticket.labels.includes(SOURCE.owner);
+  const agent = ticket.labels.includes(SOURCE.agent);
+  return owner === agent ? null : owner ? "owner" : "agent";
+}
+
+function unsourced(gates) {
+  const found = gates.filter((ticket) => ticket.state === "open" && !sourceOf(ticket));
+  for (const ticket of found) {
+    console.log(`UNSOURCED   #${ticket.number} is open with ${ticket.labels.includes(SOURCE.owner) ? "both" : "neither"} of ${SOURCE.owner} / ${SOURCE.agent}: ${ticket.title}`);
+  }
+  return found.length;
 }
 
 function createTicket({ map, row, gate, gateTitle }) {
@@ -641,18 +677,42 @@ if (command === "check") {
       console.log(`UNWIRED     #${ticket.number} is open but #${product} is not blocked_by it`);
     }
   }
-  const total = missing + unrecorded + unwired + unreachable;
+  const unlabelled = unsourced(gates);
+  const total = missing + unrecorded + unwired + unreachable + unlabelled;
   console.log(
     total === 0
-      ? "audit: no ledger row lost, every closed ticket recorded, every open fix wired, every recorded commit reachable"
-      : `audit: ${missing} missing, ${unrecorded} unrecorded, ${unwired} unwired, ${unreachable} unreachable`,
+      ? "audit: no ledger row lost, every closed ticket recorded, every open fix wired, every recorded commit reachable, every open product ticket sourced"
+      : `audit: ${missing} missing, ${unrecorded} unrecorded, ${unwired} unwired, ${unreachable} unreachable, ${unlabelled} unsourced`,
   );
   if (total > 0) process.exit(1);
   /* The step a session skipped (tubrief-v2 #98): it claimed a ticket and ran
    * a grilling round without the skills the map names. This output is what
    * every session reads right before it picks a ticket. */
-  console.log(`next: before claiming a ticket, load every skill the Notes of #${product} and #${map} name`);
+  console.log(`next: load every skill the Notes of #${product} and #${map} name, then pick with ledger.mjs frontier --map ${map} --product ${product}`);
+} else if (command === "frontier") {
+  const map = flag("map");
+  const product = flag("product");
+  if (!map || !product) throw new Error("frontier needs --map and --product");
+  const takeable = (ticket) => ticket.state === "open" && ticket.assignees.length === 0 && ticket.openBlockers === 0;
+  const show = (ticket) => `#${ticket.number} ${ticket.title}`;
+  const blockers = blockedBy(product);
+  const fixes = listTickets(map).filter((ticket) => blockers.has(ticket.number) && takeable(ticket));
+  const gates = listTickets(product);
+  if (unsourced(gates) > 0) {
+    console.log(`frontier: label every open child of #${product} ${SOURCE.owner} or ${SOURCE.agent} first`);
+    process.exit(1);
+  }
+  const open = gates.filter(takeable);
+  const owner = open.filter((ticket) => sourceOf(ticket) === "owner");
+  const approved = open.filter((ticket) => sourceOf(ticket) === "agent" && ticket.labels.includes(APPROVED));
+  const asking = open.filter((ticket) => sourceOf(ticket) === "agent" && !ticket.labels.includes(APPROVED));
+  for (const ticket of fixes) console.log(`process     ${show(ticket)}`);
+  for (const ticket of owner) console.log(`owner       ${show(ticket)}`);
+  for (const ticket of approved) console.log(`approved    ${show(ticket)}`);
+  for (const ticket of asking) console.log(`ask owner   ${show(ticket)} (${SOURCE.agent}; ${APPROVED} once the owner says go)`);
+  const [pick] = [...fixes, ...owner, ...approved];
+  console.log(pick ? `pick: #${pick.number}` : `pick: none${asking.length ? " — ask the owner about the tickets above" : ""}`);
 } else {
-  console.error("usage: ledger.mjs <close|check|sync|audit> …");
+  console.error("usage: ledger.mjs <close|check|sync|audit|frontier> …");
   process.exit(1);
 }
