@@ -240,7 +240,9 @@ $impeccable polish <target>     ← 스냅샷을 소진하며 최종 교정
 `critique`는 heuristic UX review다. hierarchy·consistency·missing state·accessibility·contrast를
 점수화하며, **aesthetic quality는 판정하지 않는다.** 그 일은 STEP 7에서 끝나 있어야 한다.
 
-**완료 조건:** critique의 P0/P1이 해소되고 스냅샷이 닫혔다. typecheck·test가 통과한다.
+**완료 조건:** critique의 P0/P1이 해소되고 스냅샷이 닫혔다. 닫힌 스냅샷(`.impeccable/critique/*.md`)이
+commit됐다 — 다른 worktree의 polish · `critique-storage trend`도 읽고, 측정기는 미추적 파일이 있으면 재지 않는다.
+typecheck·test가 통과한다.
 
 ## STEP 9 — 문서화·커밋 (STOP)
 

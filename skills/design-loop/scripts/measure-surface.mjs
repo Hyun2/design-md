@@ -1762,7 +1762,9 @@ async function baselineTokens(browser, state, width, heightPx) {
 }
 
 // The measured surface is named by its commit. JSON outputs already carrying
-// that commit are measurements of the same tree, not source changes.
+// that commit are measurements of the same tree, not source changes. A tree
+// with any other change is refused before the browser starts: a run takes
+// minutes and could only fail at the end (tubrief-v2 #129).
 function provenance() {
   const git = (...args) => execFileSync("git", args, { encoding: "utf8" }).trim();
   try {
@@ -1796,9 +1798,9 @@ function provenance() {
       if (output?._provenance?.commit === commit) ignored.push(file);
       else dirtyPaths.push(file);
     }
-    return { commit, dirty: dirtyPaths.length > 0, ignored };
+    return { commit, dirtyPaths, ignored };
   } catch {
-    return { commit: null, dirty: null, ignored: [] };
+    return { commit: null, dirtyPaths: [], ignored: [] };
   }
 }
 
@@ -1855,9 +1857,18 @@ async function sweepWidths(browser, url) {
 }
 
 async function main() {
-  const origin = provenance();
+  const { commit, dirtyPaths, ignored } = provenance();
+  if (!commit || dirtyPaths.length) {
+    console.error(
+      commit
+        ? `provenance: uncommitted changes at ${commit.slice(0, 7)}; commit, then measure\n  ${dirtyPaths.join("\n  ")}`
+        : "provenance: not a git work tree",
+    );
+    process.exitCode = 1;
+    return;
+  }
   const browser = await chromium.launch();
-  const out = { _provenance: origin };
+  const out = { _provenance: { commit, ignored } };
   const failed = [];
   // Errors are collected across the whole page and its frames, and a module
   // that failed to load leaves every handler dead. Also closed out when a
@@ -2029,11 +2040,9 @@ async function main() {
   } finally {
     await browser.close();
   }
-  if (!origin.commit) failed.push("provenance: not a git work tree");
-  else if (origin.dirty) failed.push(`provenance: uncommitted changes at ${origin.commit.slice(0, 7)}; commit, then measure`);
   await mkdir(path.dirname(outFile), { recursive: true });
   await writeFile(outFile, JSON.stringify(out, null, 2));
-  console.log(`wrote ${outFile} at ${origin.commit}${origin.dirty ? " (dirty)" : ""}`);
+  console.log(`wrote ${outFile} at ${commit}`);
   if (failed.length) {
     // A failed run is kept beside --out under its own name, so the re-run
     // that writes --out again cannot erase what failed (tubrief-v2 #124).

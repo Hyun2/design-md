@@ -121,13 +121,16 @@ concept과 무관하게 **보이는 것을 누른다.** 이어진 라운드에�
 | 재판정 | dead 판정, 그리고 문서가 같은 URL에서 통째로 바뀌었거나 frame이 떨어져 나간 live 판정은 frame을 다시 로드해 **한 번 더** 판정한다. 둘이 같으면 그 판정, 다르면 `operability.unstable`(첫째·둘째 판정)에 싣는다 — 결함도 통과도 아닌 측정 실패다. 2026-09 TuBrief #79에서 의존성을 아직 묶지 않은 dev 서버가 검사 도중 페이지를 새로 고쳐, 같은 commit이 live 컨트롤 2~4개를 한 번은 dead, 다음 실행은 live로 냈다. 한 번의 판정은 컨트롤과 환경을 가르지 못한다. 재판정은 같은 브라우저 세션 · 같은 서버에서 하므로 원인이 몇 초 이어지면 둘 다 dead다(2026-10 TuBrief #124, 다음 실행은 live). 그래서 dead · `unstable` 항목은 판정마다 `judgements`(ready 뒤 누르기까지 ms · 누른 뒤 읽기까지 ms · 읽을 때 끝나지 않은 요청 · 그 문서의 콘솔 오류와 경고, 반응이 없던 판정은 스크린샷 id)를 싣는다 — 환경 탓인지 컨트롤 탓인지는 이 기록으로 가린다 |
 | 면제 | `data-comp-inert="<사유>"`(요소 또는 조상). 출력의 `operability.inert`가 곧 제출용 비동작 목록이다. 사유가 비면 dead |
 | popup의 world | live인 컨트롤이 연 popup이 surface 루트 **밖**에 있으면, 루트가 `<html>`과 다르게 해석하는 커스텀 프로퍼티 전부를 popup의 **컨테이너**(portal이 붙은 요소)에서 다시 읽어 루트 값과 비교한다. 하나라도 다르면 `operability.unscopedPopups`에 실린다. 토큰 이름은 스타일시트에서 모으므로 프로젝트 어휘를 쓰지 않는다. 컨테이너에서 읽는 이유: popup이 자기 위에서 토큰을 다시 가리키는 것은 정당한 scoped re-point다. 2026-09 TuBrief #39에서 C 열의 정렬 메뉴가 운영 팔레트와 글꼴로 떴다 |
-| 실패 | dead 1개 이상 · `unstable` 1개 이상 · pageerror 1건 이상 · `unscopedPopups` 1건 이상 · `_provenance.dirty` 참(같은 commit의 JSON 측정 출력은 제외) → JSON은 끝까지 쓰고 exit 1. 실패한 run은 `--out` 옆 `<out>.failed-<시각>.json`(실패 줄 `_failed` · 스크린샷 `_screenshots` 포함)에도 남아, 같은 `--out`으로 다시 돌려도 지워지지 않는다. 읽은 뒤 증거로 commit하거나 지운다 — commit되지 않은 채 HEAD가 바뀌면 다음 측정의 tree가 dirty다 |
+| 실패 | dead 1개 이상 · `unstable` 1개 이상 · pageerror 1건 이상 · `unscopedPopups` 1건 이상 → JSON은 끝까지 쓰고 exit 1. 실패한 run은 `--out` 옆 `<out>.failed-<시각>.json`(실패 줄 `_failed` · 스크린샷 `_screenshots` 포함)에도 남아, 같은 `--out`으로 다시 돌려도 지워지지 않는다. 읽은 뒤 증거로 commit하거나 지운다 — commit되지 않은 채 HEAD가 바뀌면 다음 측정이 dirty로 거부된다 |
 
-**「마지막 쓰기 뒤」는 약속이 아니라 대조 가능한 사실이다.** 출력의 `_provenance`에 측정 시점의
-`commit`과 `dirty`, 그리고 제외한 경로의 `ignored`가 실린다. 현재 commit을 `_provenance.commit`에
-기록한 JSON 측정 출력은 dirty로 세지 않고 경로를 `_provenance.ignored`에 남긴다. 제출은 그 commit을
-명시하고, 제출물의 commit과 측정 commit이 다르면 측정은 무효다. 포맷터가 측정 뒤에 파일을 쓰면
-commit이 바뀌거나 tree가 dirty가 되어 드러난다.
+**「마지막 쓰기 뒤」는 약속이 아니라 대조 가능한 사실이다.** 출력의 `_provenance`에 측정한
+`commit`과, dirty에서 제외한 경로의 `ignored`가 실린다. 현재 commit을 `_provenance.commit`에 기록한
+JSON 측정 출력만 dirty로 세지 않는다. 그 밖에 commit되지 않은 변경(미추적 파일 포함)이 하나라도 있으면
+측정기는 브라우저를 띄우기 전에 그 경로들을 출력하고 exit 1로 멈춘다 — 아무것도 재지 않고 JSON도
+쓰지 않는다. 공정 단계가 남긴 파일도 같으므로 commit한 뒤 잰다: 2026-10 TuBrief(tubrief-v2 #129)에서
+STEP 8 critique snapshot이 미추적으로 남아, 측정 4개가 run을 다 돈 뒤에야 dirty로 실패했다. 제출은
+그 commit을 명시하고, 제출물의 commit과 측정 commit이 다르면 측정은 무효다. 포맷터가 측정 뒤에 파일을
+쓰면 commit이 바뀌거나 다음 측정이 거부되어 드러난다.
 
 **기계가 못 보는 절반.** 이 검사는 「죽었다」만 잡는다. 「엉뚱하게 동작한다」는 제출에 **조작 결과
 대응표**를 붙여 owner가 본다 — 컨트롤마다 1번째/2번째 조작의 결과와, 운영 화면에서 같은 조작의
