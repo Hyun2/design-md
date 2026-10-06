@@ -134,8 +134,10 @@
  *              timestamp, compared against `closed_at`); a missing flag holds
  *              every closed ticket. A process ticket closed as not planned is
  *              out of scope, not resolved, and is never held
- *   UNWIRED    an open carried ticket the product map is not `blocked_by` — the
- *              product map could close while that fix is still undone
+ *   UNWIRED    an open ticket carried from this product map — its ledger-source
+ *              gate, or the gate at the root of a chain of process tickets, is
+ *              a child of --product — that the product map is not `blocked_by`;
+ *              the product map could close while that fix is still undone
  *   UNREACHABLE a `red`/`green` of a closed ticket's row that is on no local
  *              branch and not on origin/main — its branch was deleted unpushed,
  *              or this clone never had it. Only rows with `red-line` are held.
@@ -668,13 +670,29 @@ if (command === "check") {
       console.log(`UNRECORDED  #${ticket.number} closed ${ticket.closedAt?.slice(0, 10) ?? "?"} without a ledger block${isProcess ? " (process ticket)" : ""}`);
     }
   }
+  // A fix answers to the product map its finding came from: the gate its
+  // ledger-source names or, when that source is a process ticket whose own
+  // ledger carried a row (#63 from #50), the gate at the root of that chain.
+  // Another product map paired with this process map holds its own fixes, and a
+  // chain rooted on the process map itself is no product map's (tubrief-v2 #135).
+  const carriedFrom = (ticket) => Number(ticket.body.match(/ledger-source: (\d+) ::/)?.[1]) || null;
+  const processTickets = new Map(tickets.map((ticket) => [ticket.number, ticket]));
+  const gateNumbers = new Set(gates.map((gate) => gate.number));
+  const fromProduct = (ticket) => {
+    const seen = new Set();
+    for (let n = carriedFrom(ticket); n && !seen.has(n); n = processTickets.has(n) ? carriedFrom(processTickets.get(n)) : null) {
+      if (gateNumbers.has(n)) return true;
+      seen.add(n);
+    }
+    return false;
+  };
   const blockers = blockedBy(product);
   let unwired = 0;
   for (const ticket of tickets) {
-    if (ticket.state !== "open" || !/ledger-source: \d+ ::/.test(ticket.body)) continue;
+    if (ticket.state !== "open" || !fromProduct(ticket)) continue;
     if (!blockers.has(ticket.number)) {
       unwired += 1;
-      console.log(`UNWIRED     #${ticket.number} is open but #${product} is not blocked_by it`);
+      console.log(`UNWIRED     #${ticket.number} is open, carried from #${product}, but #${product} is not blocked_by it`);
     }
   }
   const unlabelled = unsourced(gates);
