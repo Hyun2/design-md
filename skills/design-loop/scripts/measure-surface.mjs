@@ -229,8 +229,9 @@ const VISIBLE = `(el) => {
   return true;
 }`;
 
-const MEASURE = (rootSelector) => `async () => {
+const MEASURE = (rootSelector, { lineLength = true } = {}) => `async () => {
   const ROOT_SELECTOR = ${JSON.stringify(rootSelector)};
+  const LINE_LENGTH = ${JSON.stringify(lineLength)};
   const k = globalThis.__colorKernel;
   if (!k || !k.ready) return { measurementFailed: 'colour kernel: ' + (k ? k.error : 'not installed') };
   k.reset();
@@ -681,6 +682,108 @@ const MEASURE = (rootSelector) => `async () => {
   }
   textMeasures.sort((a, b) => a.em - b.em);
 
+  // Line length: how many letters a rendered line of prose holds. A rule
+  // written as a count ("about 75 characters") was enforced with one \`ch\`
+  // width, the width of \`0\` in the face drawing the text: in 2026-10 TuBrief
+  // the shipped Reader held 69 graphemes (46 Hangul) a line in Korean and 86 in
+  // English under one \`75ch\`, and nothing counted them (tubrief-v2 #136). So
+  // the letters are counted off the render, grouped by the block's own \`lang\`
+  // — the key a rule picks its cap by — with each block's script shares, so a
+  // block inheriting the wrong \`lang\` shows as a group with no letters of its
+  // script. Every visible non-heading block with a complete line is counted;
+  // the last line of a block ends because the text does and is left out.
+  // Reported, not judged: the cap is the project's sentence, compared in the
+  // STEP 5 sentence table. Off in the width sweep, where it would only repeat.
+  const lineLength = { byLang: {}, widest: {} };
+  if (LINE_LENGTH) {
+    const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+    const hangulSyllable = /[\\uAC00-\\uD7A3]/u;
+    const cjkFull = /[\\p{Script=Han}\\p{Script=Hiragana}\\p{Script=Katakana}]/u;
+    const latinLetter = /\\p{Script=Latin}/u;
+    const anyLetter = /[\\p{L}\\p{N}]/u;
+    // Hidden, faded-out, aria-hidden or inert subtrees draw no line to read;
+    // headings are titles, not prose.
+    const textNodes = [];
+    const collect = (el) => {
+      for (const c of el.childNodes) {
+        if (c.nodeType === 3) { if (c.nodeValue.trim()) textNodes.push(c); continue; }
+        if (c.nodeType !== 1) continue;
+        const st = getComputedStyle(c);
+        if (st.display === 'none' || st.visibility !== 'visible' || Number(st.opacity) === 0 || c.matches(HEADING + ',[aria-hidden="true"],[inert]')) continue;
+        collect(c);
+      }
+    };
+    collect(root);
+    const blocks = new Map();
+    for (const n of textNodes) {
+      const block = blockOf(n);
+      const px = parseFloat(getComputedStyle(n.parentElement).fontSize);
+      let b = blocks.get(block);
+      if (!b) blocks.set(block, (b = { lines: [], top: -Infinity, px }));
+      let at = 0;
+      for (const { segment } of segmenter.segment(n.nodeValue)) {
+        const start = at;
+        at += segment.length;
+        const range = document.createRange();
+        range.setStart(n, start);
+        range.setEnd(n, at);
+        const rect = [...range.getClientRects()].find((r) => r.height > 0);
+        range.detach();
+        // Collapsed source whitespace has no box and is not drawn.
+        if (!rect) continue;
+        if (rect.top - b.top > Math.max(px, b.px) / 2) {
+          b.lines.push({ g: 0, hangul: 0, cjk: 0, latin: 0, letters: 0 });
+          b.top = rect.top;
+          b.px = px;
+        }
+        const line = b.lines[b.lines.length - 1];
+        if (!line) continue;
+        // A space hanging at a wrap belongs to the line it ends.
+        line.g += 1;
+        if (anyLetter.test(segment)) line.letters += 1;
+        if (hangulSyllable.test(segment)) line.hangul += 1;
+        else if (cjkFull.test(segment)) line.cjk += 1;
+        else if (latinLetter.test(segment)) line.latin += 1;
+      }
+    }
+    const pct = (sorted, q) => sorted.length ? sorted[Math.ceil(q * sorted.length) - 1] : null;
+    const stats = (lines) => {
+      const g = lines.map((l) => l.g).sort((a, b) => a - b);
+      const h = lines.map((l) => l.hangul).sort((a, b) => a - b);
+      const c = lines.map((l) => l.cjk).sort((a, b) => a - b);
+      const letters = lines.reduce((s, l) => s + l.letters, 0) || 1;
+      const share = (k) => Number((lines.reduce((s, l) => s + l[k], 0) / letters).toFixed(2));
+      return {
+        lines: lines.length,
+        p50: pct(g, 0.5), p90: pct(g, 0.9), max: g[g.length - 1],
+        hangulP50: pct(h, 0.5), cjkP50: pct(c, 0.5),
+        share: { hangul: share('hangul'), cjk: share('cjk'), latin: share('latin') },
+      };
+    };
+    const pooled = {};
+    const perLang = {};
+    for (const [block, { lines }] of blocks) {
+      const complete = lines.slice(0, -1).filter((l) => l.g > 0);
+      if (complete.length === 0) continue;
+      const lang = ((block.closest('[lang]') || document.documentElement).getAttribute('lang') || '').toLowerCase() || '(none)';
+      (pooled[lang] ||= []).push(...complete);
+      const bs = getComputedStyle(block);
+      const r = block.getBoundingClientRect();
+      const contentPx = Math.max(0, r.width - parseFloat(bs.borderLeftWidth) - parseFloat(bs.borderRightWidth) - parseFloat(bs.paddingLeft) - parseFloat(bs.paddingRight));
+      const fontPx = parseFloat(bs.fontSize);
+      (perLang[lang] ||= []).push({
+        box: boxLabel(block),
+        text: (block.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 32),
+        contentPx: Math.round(contentPx), fontPx, em: Number((contentPx / fontPx).toFixed(2)),
+        ...stats(complete),
+      });
+    }
+    for (const lang of Object.keys(pooled).sort()) {
+      lineLength.byLang[lang] = { blocks: perLang[lang].length, ...stats(pooled[lang]) };
+      lineLength.widest[lang] = perLang[lang].sort((a, b) => b.p50 - a.p50 || b.max - a.max).slice(0, 5);
+    }
+  }
+
   // 12 — is any sentence printed twice on the surface?
   // The reader printed the brief's first sentence in a strip above the brief.
   // Only what is on screen counts, by the same judgement as criterion 8.
@@ -896,6 +999,8 @@ const MEASURE = (rootSelector) => `async () => {
     // 15 — judged text (wrapped or cut), narrowest first; the full list is
     // counted, not kept: a long page holds hundreds of wrapped paragraphs.
     textMeasure: { minEm: measureMinEm, judged: textMeasures.length, narrowest: textMeasures.slice(0, 5) },
+    // Rendered letters a complete line of prose holds, per the text's \`lang\`.
+    lineLength,
     duplicates,
     // Gated relational criteria and what failed them; declared exceptions
     // with their reasons; pictures that could not be read.
@@ -1831,7 +1936,7 @@ async function sweepWidths(browser, url) {
   for (const width of sweep.widths) {
     await page.setViewportSize({ width, height: SWEEP_HEIGHT });
     await page.evaluate(() => document.fonts.ready.then(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))));
-    const r = await page.evaluate(`(${MEASURE(rootSelector)})()`);
+    const r = await page.evaluate(`(${MEASURE(rootSelector, { lineLength: false })})()`);
     if (r.measurementFailed || r.colorRead.unread > 0) { unread.push(width); continue; }
     for (const defect of r.relational.defects) {
       const signature = defect.replace(/\d+(\.\d+)?/g, "#");
@@ -2019,6 +2124,12 @@ async function main() {
         out[key] = result;
         pageKeys.push(key);
         console.log(key, JSON.stringify(result));
+        // One readable line per lang: the count the STEP 5 sentence table holds
+        // against the project's line-length sentence.
+        for (const [lang, s] of Object.entries(result.lineLength?.byLang ?? {})) {
+          const w = result.lineLength.widest[lang][0];
+          console.log(`${key}: line length [${lang}] p50 ${s.p50} · p90 ${s.p90} · max ${s.max} graphemes a complete line (Hangul p50 ${s.hangulP50}, CJK p50 ${s.cjkP50}; shares Hangul ${s.share.hangul} · CJK ${s.share.cjk} · Latin ${s.share.latin}) over ${s.lines} lines in ${s.blocks} blocks; widest ${w.box} "${w.text}" p50 ${w.p50} at ${w.contentPx}px (${w.em}em)`);
+        }
         if (result.measurementFailed || result.colorRead.unread > 0) failed.push(`${key}: unread colour values or no kernel`);
         for (const dead of result.operability.dead) failed.push(`${key}: dead control ${dead.name} (${dead.reason})`);
         for (const u of result.operability.unstable) failed.push(`${key}: unstable control ${u.name} (${u.first}, then ${u.second}) — the environment changed under the check; measure again`);
