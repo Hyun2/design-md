@@ -181,7 +181,7 @@ world가 집행층에 들어간 뒤의 시안(STEP 5)은 `--baseline`에 더해 
 |---|---|---|
 | 1 | Dominant-element ratio: 이 surface에서 가장 큰 활자 ÷ body 크기 | ≥ 2.5 |
 | 2 | Surface layers: surface가 쓰는 면의 단 수와 인접 단 사이 lightness gap | ≥ 3 layers, ΔL ≥ 0.06 |
-| 3 | 선택·활성 state의 lightness gap — 가장 중요한 구분에 가장 큰 lightness를 쓴다 | ΔL ≥ 0.10 |
+| 3 | 선택·활성 state의 lightness gap — 가장 중요한 구분에 가장 큰 lightness를 쓴다. 어느 state가 그 구분인지는 디자인 결정이라 그 요소에 `data-comp-active="1"`을 달고, 측정기는 그 요소와 형제를 비교한다 | ΔL ≥ 0.10. **보이는 selected control(「Glossary」)이 있는데 표식이 없으면 측정 실패**(exit 1): 2026-10 TuBrief(tubrief-v2 #139)에서 시안을 운영 컴포넌트로 옮기며 표식이 빠졌고, 측정기는 이 기준을 null로 두고 exit 0을 냈다 |
 | 4 | Accent가 region을 갖는다. accent 면을 소유하는 요소마다 `data-comp-accent="1"`을 달고, 측정기는 **그 요소들의 computed 배경색**을 accent로 읽는다 — 토큰 이름으로 찾지 않는다 | 12px 미만 element에만 나타나면 실패. **보이는 owner 0개 · 배경이 투명한 owner · owner끼리 색이 다름은 측정 실패**(exit 1): 2026-09 TuBrief에서 지운 토큰이 owner를 투명하게 만들었고, 토큰으로 찾던 측정기는 면적 0을 조용히 냈다 |
 | 5 | Information entropy | 단일 값이 행의 90% 이상을 덮는 field는 표시하지 않는다 |
 | 6 | Deletion test를 모든 element가 통과 | 추상어 답변은 실패 |
@@ -198,7 +198,8 @@ world가 집행층에 들어간 뒤의 시안(STEP 5)은 `--baseline`에 더해 
 보고하며, grapheme p50이 큰 블록 5개를 함께 낸다(출력 `lineLength`, 콘솔 `line length [<lang>]` 줄. 폭
 훑기에서는 재지 않는다). 기본 threshold는 없다 — 프로젝트 `DESIGN.md`의 행폭 문장이 기준이고, STEP 5의
 문장 대조표가 이 수를 그 문장과 대조한다. 블록의 문자 체계 비율이 그 `lang`과 어긋나면(`ko` 묶음에 라틴
-1.0) 그 블록에 명시되거나 상속된 `lang`을 확인한다.
+1.0) 그 블록에 명시되거나 상속된 `lang`을 확인한다. 줄당 글자 수를 예측할 때는 페이지 `lang`과 글 `lang`이
+다른 조합도 돌린다 — [`SKILL.md`](SKILL.md) 「역할과 gate」의 「값을 함께 정하는 조건이 둘 이상이면」.
 
 threshold가 무엇을 잡아내는지 보여주는 실패 사례 수치(2026-09 비디오 목록, 교정 전):
 dominant-element ratio **1.2배**(24÷20px) · surface 2 layers(0.963/0.908) · 활성 state
@@ -294,8 +295,8 @@ gate가 되었다(2026-09 TuBrief). 새 관계 기준도 같은 순서를 밟는
 그 자체로 exit 1이다. 예외의 개수는 곧 임계값의 오탐 표본이다.
 
 **구현.** `scripts/measure-surface.mjs`가 렌더된 DOM에서 읽는다(TuBrief 호출부:
-`scripts/comp-measure.ts`). 마크업 계약은 둘이다 — 8번의 `data-comp-control="<이름>"`, 4번의
-`data-comp-accent="1"`. 나머지는 마크업 없이 측정된다. 같은 실행이 「Operability check」도 돌리며,
+`scripts/comp-measure.ts`). 마크업 계약은 셋이다 — 8번의 `data-comp-control="<이름>"`, 4번의
+`data-comp-accent="1"`, 3번의 `data-comp-active="1"`. 나머지는 마크업 없이 측정된다. 같은 실행이 「Operability check」도 돌리며,
 거기서 `data-comp-control`은 검사 대상에 포함된다. 「보이는가」(8번 · 12번 · 4번)와 「조작할 수
 있는가」(operability check)는 한 함수 위에 쌓는다 — 판정이 두 벌이면 어긋난다.
 
