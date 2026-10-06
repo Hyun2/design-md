@@ -27,10 +27,10 @@
  * under 70% of its box, a sentence of 24+ characters printed twice, text
  * wrapped or cut in a column under 6em of its own size, a heading or text
  * above 16px that breaks a Korean word across lines.
- * `data-comp-exempt="<criterion>: <reason>"` takes an element out of that
- * judgement and into `relational.exempted`, which the submission shows the
- * owner. Only 8 needs a markup contract: `data-comp-control="<name>"` on each
- * control that shares a line. The accent region needs one too:
+ * `data-comp-exempt="<criterion>: <reason>"` exempts an element from that
+ * judgement. The owner-facing `relational.exempted` reporting contract is in
+ * REFERENCE.md. Only 8 needs a markup contract: `data-comp-control="<name>"`
+ * on each control that shares a line. The accent region needs one too:
  * `data-comp-accent="1"` on every element that owns the accent fill. The
  * accent colour is read off those owners, never off a token name, and a
  * surface with no visible owner, an owner that paints nothing, or owners that
@@ -684,14 +684,22 @@ const MEASURE = (rootSelector) => `async () => {
   // 12 — is any sentence printed twice on the surface?
   // The reader printed the brief's first sentence in a strip above the brief.
   // Only what is on screen counts, by the same judgement as criterion 8.
-  const seen = new Map();
+  const allTextCounts = new Map();
+  const judgedTextCounts = new Map();
+  const exemptedCandidates = [];
   for (const el of all) {
     const own = [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent.trim()).join(' ').trim();
     if (own.length < 24 || !visible(el)) continue;
-    if (exempt(el, 12, 'text ' + own.slice(0, 32))) continue;
-    seen.set(own, (seen.get(own) ?? 0) + 1);
+    const what = 'text ' + own.slice(0, 32);
+    allTextCounts.set(own, (allTextCounts.get(own) ?? 0) + 1);
+    const reason = exemptReason(el, 12);
+    if (reason) exemptedCandidates.push({ text: own, what, reason });
+    else judgedTextCounts.set(own, (judgedTextCounts.get(own) ?? 0) + 1);
   }
-  const duplicates = [...seen.entries()].filter(([, n]) => n > 1).map(([text, n]) => ({ text: text.slice(0, 48), count: n }));
+  for (const item of exemptedCandidates) {
+    if (allTextCounts.get(item.text) > 1) exempted.push({ criterion: 12, what: item.what, reason: item.reason });
+  }
+  const duplicates = [...judgedTextCounts.entries()].filter(([, n]) => n > 1).map(([text, n]) => ({ text: text.slice(0, 48), count: n }));
   for (const d of duplicates) relationalDefects.push('criterion 12: "' + d.text + '" is printed ' + d.count + ' times');
 
   // 9 — how much of each picture is actually on screen? The author's
