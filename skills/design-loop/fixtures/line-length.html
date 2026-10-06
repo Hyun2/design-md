@@ -1,0 +1,37 @@
+<!doctype html>
+<!--
+  Line length fixture (tubrief-v2 #136): a rule written in characters ("about
+  75 characters a line") enforced with one `ch` width. `75ch` is 75 widths of
+  `0` in the face drawing the text, so the Korean, English and untagged
+  English paragraphs below hold three different counts a line under one cap.
+  The measurer must report the rendered count per `lang`, and show that the
+  untagged paragraph, inheriting `ko`, carries no Hangul.
+-->
+<html lang="ko" data-comp-ready>
+  <head>
+    <meta charset="utf-8" />
+    <title>line length fixture</title>
+    <style>
+      body { margin: 0; background: #111; color: #eee; font: 16px/1.6 sans-serif; }
+      main { display: grid; justify-items: start; gap: 24px; padding: 24px; }
+      h2 { margin: 0; font-size: 28px; }
+      p { margin: 0; max-width: 75ch; }
+      button { height: 36px; padding: 0 16px; border: 0; background: #0aa; color: #000; font: inherit; }
+    </style>
+  </head>
+  <body>
+    <main data-comp-world>
+      <h2>제목은 줄당 글자 수 측정의 대상이 아니므로 아무리 길어져도 본문 분포에 섞이지 않아야 한다</h2>
+      <p>규칙이 글자 수로 쓰여 있으면 측정도 글자 수로 해야 한다. 한 줄에 약 칠십오 자라는 문장을 숫자 영의 폭 하나로 옮기면, 그 폭에 몇 글자가 들어가는지는 글꼴과 문자 체계가 정한다. 한국어 본문은 한 글자가 영어 한 글자보다 넓어서 같은 폭에 더 적은 글자가 들어가지만, 공백과 문장 부호가 섞이면 그 차이는 다시 줄어든다. 그래서 칸의 폭을 계산하는 대신 화면에 그려진 줄을 세어야 하고, 마지막 줄은 글이 끝나서 짧은 것이므로 세지 않는다. 이 문단은 그 측정이 한국어 줄을 몇 글자로 읽는지 보여 주기 위해 충분히 길게 쓴 글이다.</p>
+      <p lang="en">A rule written in characters has to be measured in characters. Translating "about seventy-five characters a line" into the width of one digit zero leaves the face and the script to decide how many letters that width holds. Latin letters are narrow, so the same cap holds more of them than the rule allows, and a reader's eye travels further back to find the next line. The last line of a paragraph ends because the text does, so it is never counted.</p>
+      <p>This paragraph is English text without its own lang attribute, so it inherits Korean from the page and lands under a Korean cap. The count has to show it: a Korean group whose lines hold no Hangul at all is a missing lang, not a short Korean line, and the rule picking its cap by lang cannot see it any other way.</p>
+      <button type="button" data-comp-control="highlight" data-comp-accent="1">Toggle highlight</button>
+    </main>
+    <script>
+      const button = document.querySelector('button');
+      button.addEventListener('click', () => {
+        button.textContent = button.textContent === 'Toggle highlight' ? 'Highlight toggled' : 'Toggle highlight';
+      });
+    </script>
+  </body>
+</html>
