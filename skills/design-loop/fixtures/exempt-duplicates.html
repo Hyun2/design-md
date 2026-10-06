@@ -1,0 +1,40 @@
+<!doctype html>
+<!--
+  Criterion 12 exemption regression fixture (tubrief-v2 #133): unique text in
+  the exempted article must not appear in relational.exempted. Both copies of
+  one duplicate are exempted; only the exempted copy of the cross-boundary
+  duplicate is listed, while the non-exempt copy stays in the judgement.
+-->
+<html lang="en" data-comp-ready>
+  <head>
+    <meta charset="utf-8" />
+    <title>duplicate exemption fixture</title>
+    <style>
+      body { margin: 0; background: #111; color: #eee; font: 16px/1.5 sans-serif; }
+      main { display: grid; justify-items: start; gap: 16px; padding: 24px; }
+      article { max-width: 720px; padding: 16px; background: #1d1f24; }
+      p { margin: 0 0 12px; }
+      button { height: 36px; padding: 0 16px; border: 0; background: #0aa; color: #000; font: inherit; }
+    </style>
+  </head>
+  <body>
+    <main data-comp-world>
+      <article data-comp-exempt="12: the article intentionally repeats selected copy">
+        <p>This distinctive opening sentence is unique to the exempted article.</p>
+        <p>A second unique statement explains the content clearly.</p>
+        <p>Another sentence exists only to expose the old exemption noise.</p>
+        <p>This sentence appears twice inside the exempted article.</p>
+        <p>This sentence appears twice inside the exempted article.</p>
+        <p>This sentence appears once inside and once outside exemption.</p>
+      </article>
+      <p>This sentence appears once inside and once outside exemption.</p>
+      <button type="button" data-comp-control="highlight" data-comp-accent="1">Toggle highlight</button>
+    </main>
+    <script>
+      const button = document.querySelector('button');
+      button.addEventListener('click', () => {
+        button.textContent = button.textContent === 'Toggle highlight' ? 'Highlight toggled' : 'Toggle highlight';
+      });
+    </script>
+  </body>
+</html>
