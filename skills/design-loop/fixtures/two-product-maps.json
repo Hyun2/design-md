@@ -1,0 +1,63 @@
+{
+  "issues": {
+    "128": {
+      "title": "fixture — gate of product map 16",
+      "body": "",
+      "comments": ["```ledger\nfinding: f128\nclass: asset\nwhere: ledger.mjs\n```"],
+      "state": "closed",
+      "closedAt": "2026-10-06T00:00:00Z",
+      "labels": ["source:owner"]
+    },
+    "141": {
+      "title": "fixture — gate of product map 140, paired with the same process map",
+      "body": "",
+      "comments": ["```ledger\nfinding: f141\nclass: asset\nwhere: ledger.mjs\n```"],
+      "state": "closed",
+      "closedAt": "2026-10-06T00:00:00Z",
+      "labels": ["source:owner"]
+    },
+    "135": {
+      "title": "fixture — open fix carried from #128, wired to 16",
+      "body": "<!-- ledger-source: 128 :: f128 -->",
+      "state": "open"
+    },
+    "142": {
+      "title": "fixture — open fix carried from #141, wired to 140 only",
+      "body": "<!-- ledger-source: 141 :: f141 -->",
+      "state": "open"
+    },
+    "150": {
+      "title": "fixture — closed process ticket carried from #128 whose own ledger carried a row",
+      "body": "<!-- ledger-source: 128 :: f128b -->",
+      "comments": ["```ledger\nfinding: f150\nclass: asset\nwhere: ledger.mjs\n```"],
+      "state": "closed",
+      "closedAt": "2026-10-06T00:00:00Z"
+    },
+    "151": {
+      "title": "fixture — open fix carried from process ticket #150, rooted at #128, wired to 16",
+      "body": "<!-- ledger-source: 150 :: f150 -->",
+      "state": "open"
+    },
+    "50": {
+      "title": "fixture — closed process ticket charted on the process map, no ledger-source",
+      "body": "",
+      "comments": ["```ledger\nfinding: f50\nclass: asset\nwhere: ledger.mjs\n```"],
+      "state": "closed",
+      "closedAt": "2026-10-06T00:00:00Z"
+    },
+    "63": {
+      "title": "fixture — open fix carried from #50, rooted on the process map itself",
+      "body": "<!-- ledger-source: 50 :: f50 -->",
+      "state": "open"
+    }
+  },
+  "subIssues": {
+    "16": [128],
+    "140": [141],
+    "25": [135, 142, 150, 151, 50, 63]
+  },
+  "blockedBy": {
+    "16": [135, 151],
+    "140": [142]
+  }
+}
