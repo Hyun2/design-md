@@ -248,9 +248,11 @@ export function themeTables(css, names) {
  * same stylesheet the build reads, so plugins and imported sheets count.
  *
  * Returns a function `(utilities) => (string | null)[]`: the CSS each utility
- * generates, null where it generates none.
+ * generates, null where it generates none. `read(file)` returns a project
+ * file's text from the tree the detector reads (disk or index); sheets under
+ * `node_modules` are always read from disk.
  */
-export async function compiler(css, { stylesheetBase }) {
+export async function compiler(css, { stylesheetBase, read }) {
   const root = process.cwd();
   const req = createRequire(path.join(root, "package.json"));
   const { __unstable__loadDesignSystem } = req("tailwindcss");
@@ -269,7 +271,9 @@ export async function compiler(css, { stylesheetBase }) {
     base: path.join(root, stylesheetBase),
     async loadStylesheet(id, base) {
       const file = resolveSheet(id, base);
-      return { path: file, base: path.dirname(file), content: await readFile(file, "utf8") };
+      const local = path.relative(root, file);
+      const own = read && !local.startsWith("..") && !local.split(path.sep).includes("node_modules");
+      return { path: file, base: path.dirname(file), content: own ? await read(local) : await readFile(file, "utf8") };
     },
     async loadModule(id, base) {
       const file = req.resolve(id);

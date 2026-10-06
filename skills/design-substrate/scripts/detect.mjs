@@ -5,6 +5,7 @@
  *   node ~/.agents/skills/design-substrate/scripts/detect.mjs --config <file>            # summary + exit code
  *   node ~/.agents/skills/design-substrate/scripts/detect.mjs --config <file> --json     # machine-readable
  *   node ~/.agents/skills/design-substrate/scripts/detect.mjs --config <file> --census   # every declared token's fate
+ *   node ~/.agents/skills/design-substrate/scripts/detect.mjs --config <file> --staged   # pre-commit: what the commit holds
  *
  * Run it from the project root. `--config` names an ES module (`.mjs`, or `.ts`
  * on Node >= 22.18) whose default export carries `adapter` and `detect`; see
@@ -33,20 +34,43 @@
  * painting nothing there for a whole round. A file leaves the scope only
  * through `utilityExempt`, with its reason.
  *
+ * One run reads one tree, file list and contents alike. By default that is the
+ * working tree — tracked and untracked files, `.gitignore` respected — so a run
+ * mid-work sees what is on disk. `--staged` reads the index instead, the tree
+ * the commit will hold, and is what a pre-commit hook passes. Picking paths
+ * from the index and contents from disk once reported a token dead whose only
+ * reader was a new untracked file (tubrief-v2 #140), and would pass a commit
+ * that drops a reader only the working tree still has. Files git does not
+ * track (`node_modules`) are read from disk in both modes.
+ *
  * What the library knows — which utility reads which token, how a radius step
  * resolves, whether a class compiles — is the adapter's (`adapters/<name>.mjs`),
  * answering the six questions of `ADAPTERS.md`.
  */
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { loadConfig } from "./config.mjs";
 import { gamutVerdict } from "./gamut.mjs";
 import { compositeContrast, resolveColour } from "./contrast.mjs";
 
+const STAGED = process.argv.includes("--staged");
+
 function listFiles(...globs) {
-  const result = spawnSync("git", ["ls-files", ...globs], { encoding: "utf8" });
-  return result.stdout.trim().split("\n").filter(Boolean);
+  const scope = STAGED ? ["--cached"] : ["--cached", "--others", "--exclude-standard"];
+  const result = spawnSync("git", ["ls-files", ...scope, "--", ...globs], { encoding: "utf8" });
+  const files = [...new Set(result.stdout.trim().split("\n").filter(Boolean))];
+  /* A tracked file deleted on disk is listed by --cached but is not in the working tree. */
+  return STAGED ? files : files.filter((f) => existsSync(f));
+}
+
+/* The tree's copy of a file: the index under --staged, else disk. */
+async function readTree(file) {
+  if (!STAGED) return readFile(file, "utf8");
+  const result = spawnSync("git", ["show", `:./${file}`], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  if (result.status !== 0) throw new Error(`${file} is not in the index: ${result.stderr.trim()}`);
+  return result.stdout;
 }
 
 const stripComments = (text) =>
@@ -71,12 +95,12 @@ async function main() {
   const json = process.argv.includes("--json");
   const census = process.argv.includes("--census");
 
-  const css = await readFile(tokensFile, "utf8");
+  const css = await readTree(tokensFile);
   const sourceFiles = listFiles(...sourceGlobs).filter((f) => f !== tokensFile);
   const sources = {};
-  for (const f of sourceFiles) sources[f] = await readFile(f, "utf8");
+  for (const f of sourceFiles) sources[f] = await readTree(f);
   const primitiveFiles = listFiles(primitives);
-  const primitiveTexts = await Promise.all(primitiveFiles.map((f) => readFile(f, "utf8")));
+  const primitiveTexts = await Promise.all(primitiveFiles.map(readTree));
 
   /* Utility usage is asked of everything that can carry a class, including the
    * stylesheet's own `@apply`, with the declaration lines stripped so a token
@@ -144,7 +168,7 @@ async function main() {
   }
 
   /* 4. drift: the authority document's shapes against the primitives'. */
-  const design = await readFile(designDoc, "utf8");
+  const design = await readTree(designDoc);
   const declaredRadius = design.match(/^\s*(?:frame|control):\s*"(\d+)px"/m)?.[1];
   const rootRadius = css.match(/^\s*--radius:\s*([^;]+);/m)?.[1]?.trim();
   if (declaredRadius && rootRadius) {
@@ -195,7 +219,7 @@ async function main() {
   /* 5. dangling references. A utility whose token was deleted compiles to
    * nothing and the element paints transparent with no error anywhere, so the
    * only witness is the library's own answer (ADAPTERS.md question 6). */
-  const compiles = await adapter.compiler(css, { stylesheetBase });
+  const compiles = await adapter.compiler(css, { stylesheetBase, read: readTree });
   const renderedFiles = [tokensFile, ...sourceFiles];
   const renderedText = { ...sources, [tokensFile]: css };
   const utilityHits = new Map();
