@@ -36,8 +36,13 @@
  * surface with no visible owner, an owner that paints nothing, or owners that
  * disagree about the colour is a failed measurement — in 2026-09 a deleted
  * token turned the owners transparent and the old token probe reported an
- * accent area of 0 that nobody questioned. `data-comp-active="1"` on a
- * selected row sharpens criterion 3.
+ * accent area of 0 that nobody questioned. Criterion 3 reads the element marked
+ * `data-comp-active="1"` against an idle sibling. Which selected state is the
+ * one that matters is a design call, so it is declared, never guessed: a
+ * visible selected control (the operability check's definition) with no marker
+ * in the surface is a failed measurement — in 2026-10 a marker lost moving a
+ * comp into an operating component left criterion 3 null under exit 0
+ * (tubrief-v2 #139).
  *
  * The same run is the operability check of REFERENCE.md 「Comp fidelity
  * conditions」 7: every visible control is operated, and a dead one, a page
@@ -301,7 +306,8 @@ const MEASURE = (rootSelector, { lineLength = true } = {}) => `async () => {
     .sort((a, b) => a.L - b.L);
   const deltas = ladder.slice(1).map((s, i) => Number((s.L - ladder[i].L).toFixed(4)));
 
-  // 3 — active vs idle sibling.
+  // 3 — active vs idle sibling. The marker names the state that matters; a
+  // visible selected control with no marker fails rather than reads as null.
   const active = root.querySelector('[data-comp-active]');
   let activeState = null;
   if (active) {
@@ -316,6 +322,12 @@ const MEASURE = (rootSelector, { lineLength = true } = {}) => `async () => {
       delta: a && b ? Number(Math.abs(toL(a) - toL(b)).toFixed(4)) : null,
       idleFound: Boolean(idle),
     };
+  } else {
+    const selected = ${SELECTED};
+    const unmarked = all.filter((el) => selected(el) && visible(el)).map(describe);
+    if (unmarked.length) {
+      activeState = { error: 'no data-comp-active while a selected control is visible: ' + unmarked.join(', ') + ' — mark the state criterion 3 judges' };
+    }
   }
 
   // 4 — accent region: fills of the owners' colour, by area and height.
@@ -2135,6 +2147,7 @@ async function main() {
         for (const u of result.operability.unstable) failed.push(`${key}: unstable control ${u.name} (${u.first}, then ${u.second}) — the environment changed under the check; measure again`);
         for (const broke of result.operability.errors) failed.push(`${key}: check error on ${broke.name} (${broke.error})`);
         if (result.accent?.error) failed.push(`${key}: ${result.accent.error}`);
+        if (result.activeState?.error) failed.push(`${key}: ${result.activeState.error}`);
         for (const defect of result.relational?.defects ?? []) failed.push(`${key}: ${defect}`);
         for (const p of result.operability.unscopedPopups) {
           const cut = (v) => v.replace(/\s+/g, " ").slice(0, 40);
