@@ -247,11 +247,14 @@ async function main() {
 
   /* The same defect one level down: `bg-(--x)`, `[var(--x)]` and `var(--x)`
    * compile whatever `--x` is, so the question moves to whether anything
-   * declares it — the project, the library's sheets, or a runtime writer. */
+   * declares it — the project, the library's sheets, or a runtime writer.
+   * A Tailwind arbitrary property (`[--x:1rem]`, `@min-[40rem]:[--x:2rem]`)
+   * declares it too: that is the only way to set it under a variant
+   * (tubrief-v2 #145). */
   const declaredVars = new Set();
   const libraryVars = new Set();
   const collectDeclarations = (text, into) => {
-    for (const m of text.matchAll(/(?:^|[\s{;"'`,(])(--[a-zA-Z0-9_-]+)\s*["'`]?\s*:/g)) into.add(m[1]);
+    for (const m of text.matchAll(/(?:^|[\s{;"'`,([])(--[a-zA-Z0-9_-]+)\s*["'`]?\s*:/g)) into.add(m[1]);
     for (const m of text.matchAll(/setProperty\(\s*["'`](--[\w-]+)/g)) into.add(m[1]);
   };
   for (const sheet of adapter.LIBRARY_SHEETS) {
